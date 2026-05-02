@@ -128,6 +128,7 @@ body::before { content: ''; position: fixed; inset: 0; background-image: linear-
 .status-chip { display: inline-flex; align-items: center; gap: 4px; font-size: 9px; font-family: var(--mono); letter-spacing: 1px; padding: 3px 8px; border-radius: 20px; }
 .status-idle { background: rgba(74,100,128,.2); color: var(--text-dim); border: 1px solid var(--border); }
 .status-long { background: rgba(0,227,150,.1); color: var(--accent2); border: 1px solid var(--accent2); }
+.status-short { background: rgba(168,85,247,.1); color: #a855f7; border: 1px solid #a855f7; }
 .status-stop { background: rgba(255,69,96,.1); color: var(--loss); border: 1px solid var(--loss); }
 .log-box { background: var(--surface); border-radius: 8px; height: 58px; overflow-y: auto; padding: 6px 8px; font-family: var(--mono); font-size: 9px; margin-top: 8px; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
 .log-entry { padding: 1px 0; border-bottom: 1px solid rgba(26,51,80,.3); }
@@ -153,6 +154,47 @@ body::before { content: ''; position: fixed; inset: 0; background-image: linear-
 .save-indicator { position: fixed; bottom: 16px; right: 16px; background: var(--card); border: 1px solid var(--accent2); border-radius: 8px; padding: 6px 12px; font-family: var(--mono); font-size: 10px; color: var(--accent2); z-index: 100; opacity: 0; transition: opacity .3s; pointer-events: none; }
 .save-indicator.show { opacity: 1; }
 .hidden { display: none !important; }
+
+/* ── RESPONSIVE: TABLET ── */
+@media (min-width: 600px) {
+  #app { max-width: 900px; padding: 16px; }
+  #bot-container { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .candle-chart { height: 140px !important; }
+  .rsi-chart { height: 80px !important; }
+  .balance-main { font-size: 2.8em !important; }
+  .tab { font-size: 13px !important; padding: 13px !important; }
+  .price-big { font-size: 2.2em !important; }
+  .bot-name { font-size: 14px !important; }
+  .log-box { height: 80px !important; font-size: 10px !important; }
+  .rsi-ctrl-title { font-size: 11px !important; }
+  .rsi-row-lbl { font-size: 11px !important; width: 100px !important; }
+  .ctrl-label { font-size: 11px !important; }
+  .ctrl-select { font-size: 13px !important; padding: 8px !important; }
+  .btn-bot { font-size: 14px !important; padding: 14px !important; }
+  .stat-chip-val { font-size: 15px !important; }
+  .stat-chip-lbl { font-size: 11px !important; }
+  .login-box { max-width: 440px; padding: 40px 36px; }
+  .login-logo { font-size: 2.4em !important; }
+  .panel { padding: 20px; }
+  .asset-grid { grid-template-columns: repeat(5,1fr); gap: 8px; }
+  .asset-pill { font-size: 12px !important; padding: 10px 6px !important; }
+  .trade-btns .btn-buy, .trade-btns .btn-sell { font-size: 16px !important; padding: 18px !important; }
+}
+
+/* ── RESPONSIVE: LARGE TABLET / DESKTOP ── */
+@media (min-width: 900px) {
+  #app { max-width: 1200px; }
+  #bot-container { grid-template-columns: 1fr 1fr 1fr; }
+  .candle-chart { height: 160px !important; }
+}
+
+/* ── RESPONSIVE: SMALL PHONE ── */
+@media (max-width: 360px) {
+  .balance-main { font-size: 1.8em !important; }
+  .price-big { font-size: 1.5em !important; }
+  .tab { font-size: 10px !important; padding: 8px !important; }
+  .asset-btn { font-size: 10px !important; padding: 4px 8px !important; }
+}
 </style>
 </head>
 <body>
@@ -376,9 +418,9 @@ const LOCAL_KEY = 'TRADEOS_ANON';
 let state = {
   balance:1000, startBalance:1000, wins:0, losses:0, totalTrades:0, tradeHistory:[],
   bots:{
-    1:{running:false,asset:'BTC', risk:0.10,stopLoss:0.03,compound:true,rsiOS:30,rsiOB:70,inTrade:false,entry:0,pnl:0,priceH:[],rsiH:[],candles:[],status:'idle'},
-    2:{running:false,asset:'ETH', risk:0.10,stopLoss:0.03,compound:true,rsiOS:32,rsiOB:68,inTrade:false,entry:0,pnl:0,priceH:[],rsiH:[],candles:[],status:'idle'},
-    3:{running:false,asset:'SOL', risk:0.05,stopLoss:0.02,compound:true,rsiOS:28,rsiOB:65,inTrade:false,entry:0,pnl:0,priceH:[],rsiH:[],candles:[],status:'idle'},
+    1:{running:false,asset:'BTC', risk:0.10,stopLoss:0.03,compound:true,rsiOS:30,rsiOB:70,inTrade:false,direction:'long',entry:0,pnl:0,priceH:[],rsiH:[],candles:[],status:'idle'},
+    2:{running:false,asset:'ETH', risk:0.10,stopLoss:0.03,compound:true,rsiOS:32,rsiOB:68,inTrade:false,direction:'long',entry:0,pnl:0,priceH:[],rsiH:[],candles:[],status:'idle'},
+    3:{running:false,asset:'SOL', risk:0.05,stopLoss:0.02,compound:true,rsiOS:28,rsiOB:65,inTrade:false,direction:'long',entry:0,pnl:0,priceH:[],rsiH:[],candles:[],status:'idle'},
   },
   manual:{asset:'BTC',inTrade:false,entry:0,amount:0,stopLoss:0.03,takeProfit:0.05,amtPct:5},
 };
@@ -815,34 +857,90 @@ function calcEMA(h,period=9) {
 }
 
 // ══════════════════════════════════════
-//  BOT LOGIC
+//  BOT LOGIC — LONG & SHORT
 // ══════════════════════════════════════
 function runBotLogic(id,price,rsi) {
   const b=state.bots[id], OS=b.rsiOS, OB=b.rsiOB;
+
   if (!b.inTrade) {
-    let buy=false;
-    if(id===1){const ema=calcEMA(b.priceH,9);buy=rsi<OS&&price>ema*0.997;}
-    else if(id===2){if(b.priceH.length>=5){const mom=(b.priceH.at(-1)-b.priceH.at(-5))/b.priceH.at(-5);buy=mom>0.002&&rsi<(OS+10);}}
-    else{buy=rsi<OS;}
-    if(buy){b.inTrade=true;b.entry=price;setStatus(id,'long');botLog(id,`🟢 BUY @ ${fmtPrice(price,b.asset)}`,'var(--accent2)');}
+    // ── Einstiegssignale ──
+    let goLong=false, goShort=false;
+
+    if (id===1) {
+      // RSI+EMA: Long wenn überverkauft, Short wenn überkauft
+      const ema=calcEMA(b.priceH,9);
+      goLong  = rsi < OS && price > ema*0.997;
+      goShort = rsi > OB && price < ema*1.003;
+    } else if (id===2) {
+      // Momentum: Long bei positivem Schwung, Short bei negativem
+      if (b.priceH.length>=5) {
+        const mom=(b.priceH.at(-1)-b.priceH.at(-5))/b.priceH.at(-5);
+        goLong  = mom >  0.002 && rsi < OB-10;
+        goShort = mom < -0.002 && rsi > OS+10;
+      }
+    } else {
+      // Scalper: Mean Reversion in beide Richtungen
+      goLong  = rsi < OS;
+      goShort = rsi > OB;
+    }
+
+    if (goLong) {
+      b.inTrade=true; b.direction='long'; b.entry=price;
+      setStatus(id,'long');
+      botLog(id,`🟢 LONG @ ${fmtPrice(price,b.asset)}`,'var(--accent2)');
+    } else if (goShort) {
+      b.inTrade=true; b.direction='short'; b.entry=price;
+      setStatus(id,'short');
+      botLog(id,`🔵 SHORT @ ${fmtPrice(price,b.asset)}`,'#a855f7');
+    }
+
   } else {
-    const diff=(price-b.entry)/b.entry;
-    if(diff<=-b.stopLoss)                      closeBotTrade(id,price,'STOP LOSS');
-    else if(id===1&&(rsi>OB||diff>=0.04))      closeBotTrade(id,price,'SELL');
-    else if(id===2&&(diff>=0.03||rsi>OB))      closeBotTrade(id,price,'SELL');
-    else if(id===3&&(diff>=0.015||rsi>OB))     closeBotTrade(id,price,'SELL');
+    // ── Ausstiegssignale ──
+    const rawDiff = (price - b.entry) / b.entry;
+    // Bei Short ist Gewinn wenn Preis fällt
+    const diff = b.direction==='short' ? -rawDiff : rawDiff;
+
+    // Stop-Loss
+    if (diff <= -b.stopLoss) {
+      closeBotTrade(id, price, 'STOP LOSS'); return;
+    }
+
+    // Take-Profit je nach Strategie
+    let tp = id===1 ? 0.04 : id===2 ? 0.03 : 0.015;
+    let exitSignal = false;
+
+    if (id===1) exitSignal = b.direction==='long' ? rsi>OB : rsi<OS;
+    else if (id===2) exitSignal = b.direction==='long' ? rsi>OB : rsi<OS;
+    else exitSignal = b.direction==='long' ? rsi>OB : rsi<OS;
+
+    if (diff >= tp || exitSignal) closeBotTrade(id, price, 'CLOSE');
   }
 }
 
 function closeBotTrade(id,price,type) {
-  const b=state.bots[id], diff=(price-b.entry)/b.entry;
-  const base=b.compound?state.balance:state.startBalance;
-  const gain=base*b.risk*diff;
+  const b=state.bots[id];
+  const rawDiff = (price - b.entry) / b.entry;
+  // Gewinn/Verlust je nach Richtung korrekt berechnen
+  const diff = b.direction==='short' ? -rawDiff : rawDiff;
+  const base = b.compound ? state.balance : state.startBalance;
+  // Investierter Betrag × prozentuale Bewegung = realer Gewinn in $
+  const invested = base * b.risk;
+  const gain = invested * diff;
+
   state.balance+=gain; b.pnl+=gain; b.inTrade=false;
   if(gain>=0)state.wins++;else state.losses++; state.totalTrades++;
-  botLog(id,`${type==='STOP LOSS'?'🔴':'⚪'} ${type} ${gain>=0?'+':''}$${gain.toFixed(2)} (${(diff*100).toFixed(2)}%)`,gain>=0?'var(--win)':'var(--loss)');
-  setStatus(id,type==='STOP LOSS'?'stop':'idle');
-  state.tradeHistory.unshift({time:new Date().toLocaleTimeString('de-DE'),bot:BOT_META[id-1].name,asset:b.asset,type,gain,diff});
+
+  const dirEmoji = b.direction==='short'?'🔵':'🟢';
+  const typeStr  = type==='STOP LOSS'?'🔴 STOP LOSS':`${dirEmoji} CLOSE ${b.direction.toUpperCase()}`;
+  botLog(id,`${typeStr} ${gain>=0?'+':''}$${gain.toFixed(2)} (${(diff*100).toFixed(2)}%)`,gain>=0?'var(--win)':'var(--loss)');
+  setStatus(id, type==='STOP LOSS'?'stop':'idle');
+
+  state.tradeHistory.unshift({
+    time:new Date().toLocaleTimeString('de-DE'),
+    bot:BOT_META[id-1].name, asset:b.asset,
+    type: b.direction.toUpperCase()+' '+type,
+    gain, diff, invested
+  });
   if(state.tradeHistory.length>100)state.tradeHistory.pop();
   const pe=document.getElementById(`bpnl-${id}`);
   if(pe){pe.textContent=`${b.pnl>=0?'+':''}$${b.pnl.toFixed(2)}`;pe.className=`bot-pnl${b.pnl>=0?' pnl-pos':' pnl-neg'}`;}
@@ -851,8 +949,8 @@ function closeBotTrade(id,price,type) {
 
 function setStatus(id,s) {
   state.bots[id].status=s; const el=document.getElementById(`status-${id}`); if(!el)return;
-  el.className='status-chip '+(s==='long'?'status-long':s==='stop'?'status-stop':'status-idle');
-  el.textContent=s==='long'?'● LONG':s==='stop'?'● SL HIT':'● IDLE';
+  el.className='status-chip '+(s==='long'?'status-long':s==='short'?'status-short':s==='stop'?'status-stop':'status-idle');
+  el.textContent=s==='long'?'● LONG':s==='short'?'● SHORT':s==='stop'?'● SL HIT':'● IDLE';
   if(s==='stop')setTimeout(()=>setStatus(id,'idle'),3000);
 }
 function botLog(id,msg,color) {
@@ -970,10 +1068,12 @@ function renderHistory() {
   if(!state.tradeHistory.length){el.innerHTML='<div class="no-trades">Noch keine Trades abgeschlossen.</div>';return;}
   el.innerHTML=state.tradeHistory.map(t=>`
     <div class="trade-row">
-      <div><div style="font-family:var(--mono);font-size:10px;color:var(--accent)">${t.bot} · ${t.asset}</div>
-      <div style="font-size:9px;color:var(--text-dim)">${t.time} · ${t.type}</div></div>
+      <div><div style="font-family:var(--mono);font-size:10px;color:var(--accent)">${t.bot} · ${t.asset} · ${t.type}</div>
+      <div style="font-size:9px;color:var(--text-dim)">${t.time}${t.invested?' · Einsatz: $'+t.invested.toFixed(2):''}</div></div>
       <div style="font-family:var(--mono);font-size:12px;color:${t.gain>=0?'var(--win)':'var(--loss)'}">
-        ${t.gain>=0?'+':''}$${t.gain.toFixed(2)}</div>
+        ${t.gain>=0?'+':''}$${t.gain.toFixed(2)}<br>
+        <span style="font-size:9px;opacity:.7">${(t.diff*100).toFixed(2)}%</span>
+      </div>
     </div>`).join('');
 }
 
