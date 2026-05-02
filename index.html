@@ -169,15 +169,13 @@ body::before { content: ''; position: fixed; inset: 0; background-image: linear-
     <div class="notice-step"><div class="notice-num">3</div><div>Gehe in der linken Menüleiste zu <b>Build → Firestore Database</b> → Datenbank erstellen → im <b>Testmodus</b> starten</div></div>
     <div class="notice-step"><div class="notice-num">4</div><div>Gehe zu <b>Authentication → Sign-in method</b> → aktiviere <b>E-Mail/Passwort</b></div></div>
     <div class="notice-step"><div class="notice-num">5</div><div>Ersetze den Platzhalter unten in der Datei <code>index.html</code> mit deiner echten Firebase-Konfiguration:</div></div>
+    <div class="notice-code">// ▼ HIER DEINE FIREBASE-KONFIG EINFÜGEN ▼
 const firebaseConfig = {
-  apiKey: "AIzaSyDlHLW121lpuf_NFhOxnqyt8j43MpMiKZs",
-  authDomain: "tradeos-213a4.firebaseapp.com",
-  projectId: "tradeos-213a4",
-  storageBucket: "tradeos-213a4.firebasestorage.app",
-  messagingSenderId: "290408586738",
-  appId: "1:290408586738:web:1d86843f88222fd04f1f6b"
-};
-</div>
+  apiKey: "DEIN-API-KEY",
+  authDomain: "DEIN-PROJEKT.firebaseapp.com",
+  projectId: "DEIN-PROJEKT-ID",
+  ...
+};</div>
     <div class="notice-step"><div class="notice-num">6</div><div>Datei speichern → auf GitHub hochladen → fertig!</div></div>
     <button class="btn-confirm" style="margin-top:16px" onclick="dismissNotice()">VERSTANDEN — SPÄTER EINRICHTEN</button>
   </div>
@@ -329,12 +327,12 @@ const firebaseConfig = {
 // ║  aus der Firebase Console (console.firebase.google.com)   ║
 // ╚═══════════════════════════════════════════════════════════╝
 const firebaseConfig = {
-  apiKey:            "DEIN-API-KEY",
-  authDomain:        "DEIN-PROJEKT.firebaseapp.com",
-  projectId:         "DEIN-PROJEKT-ID",
-  storageBucket:     "DEIN-PROJEKT.appspot.com",
-  messagingSenderId: "DEINE-SENDER-ID",
-  appId:             "DEINE-APP-ID"
+  apiKey:            "AIzaSyDlHLW121lpuf_NFhOxnqyt8j43MpMiKZs",
+  authDomain:        "tradeos-213a4.firebaseapp.com",
+  projectId:         "tradeos-213a4",
+  storageBucket:     "tradeos-213a4.firebasestorage.app",
+  messagingSenderId: "290408586738",
+  appId:             "1:290408586738:web:1d86843f88222fd04f1f6b"
 };
 
 // ── Firebase Imports ──
