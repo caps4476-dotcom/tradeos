@@ -7,9 +7,9 @@
 <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Exo+2:wght@300;400;600;700;900&display=swap" rel="stylesheet">
 <style>
 :root {
-  --bg: #050b14; --surface: #0a1628; --card: #0d1e35; --border: #1a3350;
+  --bg: #050b14; --surface: #0d1e35; --card: #111f38; --border: #1e3d5c;
   --accent: #00d4ff; --accent2: #00ff9d; --warn: #ffb800;
-  --loss: #ff4560; --win: #00e396; --text: #c8d8e8; --text-dim: #4a6480;
+  --loss: #ff4560; --win: #00e396; --text: #e8f4ff; --text-dim: #7aaCcc;
   --mono: 'Share Tech Mono', monospace; --sans: 'Exo 2', sans-serif;
 }
 * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
@@ -98,11 +98,11 @@ body::before { content: ''; position: fixed; inset: 0; background-image: linear-
 .price-change { font-family: var(--mono); font-size: 11px; }
 .chart-wrap { background: var(--surface); border-radius: 8px; margin-bottom: 6px; position: relative; overflow: hidden; }
 .chart-wrap canvas { width: 100%; height: 100%; display: block; }
-.chart-label { position: absolute; top: 4px; left: 6px; font-size: 8px; color: var(--text-dim); font-family: var(--mono); z-index: 2; pointer-events: none; }
+.chart-label { position: absolute; top: 4px; left: 6px; font-size: 8px; color: #8fc8e8; font-family: var(--mono); z-index: 2; pointer-events: none; }
 .chart-label-r { position: absolute; top: 4px; right: 6px; font-size: 9px; font-family: var(--mono); z-index: 2; pointer-events: none; font-weight: bold; }
-.candle-chart { height: 100px; } .rsi-chart { height: 58px; }
+.candle-chart { height: 70px; transition: height .3s; } .candle-chart.zoomed { height: 140px; } .rsi-chart { height: 52px; }
 .rsi-controls { background: var(--surface); border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; }
-.rsi-ctrl-title { font-size: 9px; color: var(--text-dim); letter-spacing: 1px; font-family: var(--mono); margin-bottom: 8px; }
+.rsi-ctrl-title { font-size: 9px; color: #8fc8e8; letter-spacing: 1px; font-family: var(--mono); margin-bottom: 8px; }
 .rsi-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
 .rsi-row:last-child { margin-bottom: 0; }
 .rsi-row-lbl { font-size: 9px; font-family: var(--mono); width: 82px; flex-shrink: 0; }
@@ -115,7 +115,7 @@ body::before { content: ''; position: fixed; inset: 0; background-image: linear-
 .rsi-val { font-family: var(--mono); font-size: 11px; width: 24px; text-align: right; flex-shrink: 0; font-weight: bold; }
 .ctrl-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin: 10px 0; }
 .ctrl-item { display: flex; flex-direction: column; gap: 3px; }
-.ctrl-label { font-size: 9px; color: var(--text-dim); letter-spacing: 1px; text-align: center; }
+.ctrl-label { font-size: 9px; color: #8fc8e8; letter-spacing: 1px; text-align: center; }
 .ctrl-select { background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 6px 4px; border-radius: 6px; font-family: var(--mono); font-size: 11px; text-align: center; outline: none; width: 100%; cursor: pointer; }
 .toggle { position: relative; width: 38px; height: 20px; }
 .toggle input { display: none; }
@@ -159,8 +159,9 @@ body::before { content: ''; position: fixed; inset: 0; background-image: linear-
 @media (min-width: 600px) {
   #app { max-width: 900px; padding: 16px; }
   #bot-container { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-  .candle-chart { height: 140px !important; }
-  .rsi-chart { height: 80px !important; }
+  .candle-chart { height: 90px !important; }
+  .candle-chart.zoomed { height: 170px !important; }
+  .rsi-chart { height: 70px !important; }
   .balance-main { font-size: 2.8em !important; }
   .tab { font-size: 13px !important; padding: 13px !important; }
   .price-big { font-size: 2.2em !important; }
@@ -185,7 +186,8 @@ body::before { content: ''; position: fixed; inset: 0; background-image: linear-
 @media (min-width: 900px) {
   #app { max-width: 1200px; }
   #bot-container { grid-template-columns: 1fr 1fr 1fr; }
-  .candle-chart { height: 160px !important; }
+  .candle-chart { height: 110px !important; }
+  .candle-chart.zoomed { height: 200px !important; }
 }
 
 /* ── RESPONSIVE: SMALL PHONE ── */
@@ -297,6 +299,15 @@ const firebaseConfig = {
       <div class="stat-chip"><div class="stat-chip-val" id="stat-losses" style="color:var(--loss)">0</div><div class="stat-chip-lbl">LOSSES</div></div>
       <div class="stat-chip"><div class="stat-chip-val" id="stat-trades">0</div><div class="stat-chip-lbl">TRADES</div></div>
       <div class="stat-chip"><div class="stat-chip-val" id="stat-winrate">-%</div><div class="stat-chip-lbl">WIN RATE</div></div>
+    </div>
+
+    <!-- GEWINNKURVE -->
+    <div style="margin-top:10px;position:relative;">
+      <div style="font-size:9px;color:#8fc8e8;font-family:var(--mono);letter-spacing:1px;margin-bottom:4px;">GEWINNKURVE</div>
+      <div style="background:var(--surface);border-radius:8px;height:52px;position:relative;overflow:hidden;">
+        <canvas id="profit-curve" style="width:100%;height:100%;display:block;"></canvas>
+        <div id="profit-curve-empty" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:9px;color:var(--text-dim);">Noch keine Trades</div>
+      </div>
     </div>
   </div>
 
@@ -621,9 +632,10 @@ function buildBots() {
         <div class="price-big" id="bprice-${cfg.id}">$---</div>
         <div class="price-change" id="bchange-${cfg.id}"></div>
       </div>
-      <div class="chart-wrap candle-chart">
+      <div class="chart-wrap candle-chart" id="ccwrap-${cfg.id}">
         <div class="chart-label">CANDLESTICK</div>
-        <div class="chart-label-r" id="clbl-${cfg.id}" style="color:#c8d8e8"></div>
+        <div class="chart-label-r" id="clbl-${cfg.id}" style="color:#e8f4ff"></div>
+        <button onclick="toggleZoom(${cfg.id})" id="zoom-btn-${cfg.id}" style="position:absolute;bottom:3px;right:4px;z-index:3;background:rgba(13,30,53,.85);border:1px solid var(--border);color:#8fc8e8;font-size:8px;padding:2px 5px;border-radius:4px;cursor:pointer;font-family:var(--mono);">＋ZOOM</button>
         <canvas id="ccandle-${cfg.id}"></canvas>
       </div>
       <div class="chart-wrap rsi-chart">
@@ -1058,6 +1070,7 @@ function updateHeader() {
   document.getElementById('stat-trades').textContent=state.totalTrades;
   const wr=state.totalTrades>0?(state.wins/state.totalTrades*100).toFixed(0):'-';
   document.getElementById('stat-winrate').textContent=wr+(wr!=='-'?'%':'');
+  drawProfitCurve();
 }
 
 // ══════════════════════════════════════
@@ -1095,6 +1108,92 @@ window.resetConfirm = async () => {
 };
 
 function startFeed(){ fetchPrices(); setInterval(fetchPrices,3000); }
+
+// ══════════════════════════════════════
+//  ZOOM TOGGLE
+// ══════════════════════════════════════
+window.toggleZoom = id => {
+  const wrap = document.getElementById(`ccwrap-${id}`);
+  const btn  = document.getElementById(`zoom-btn-${id}`);
+  const zoomed = wrap.classList.toggle('zoomed');
+  btn.textContent = zoomed ? '－ZOOM' : '＋ZOOM';
+};
+
+// ══════════════════════════════════════
+//  GEWINNKURVE
+// ══════════════════════════════════════
+function drawProfitCurve() {
+  const canvas = document.getElementById('profit-curve');
+  const empty  = document.getElementById('profit-curve-empty');
+  if (!canvas) return;
+
+  const trades = [...state.tradeHistory].reverse(); // chronological order
+  if (trades.length < 2) {
+    if (empty) empty.style.display = 'flex';
+    return;
+  }
+  if (empty) empty.style.display = 'none';
+
+  const dpr = window.devicePixelRatio || 1;
+  const W = canvas.clientWidth * dpr, H = canvas.clientHeight * dpr;
+  if (canvas.width !== W || canvas.height !== H) { canvas.width = W; canvas.height = H; }
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, W, H);
+
+  // Build cumulative profit series starting from 0
+  const points = [0];
+  let cumulative = 0;
+  trades.forEach(t => { cumulative += t.gain; points.push(cumulative); });
+
+  const min = Math.min(...points), max = Math.max(...points);
+  const range = (max - min) || 1;
+  const pad = H * 0.1;
+  const py = v => pad + (1 - (v - min) / range) * (H - pad * 2);
+  const px = i => (i / (points.length - 1)) * W;
+
+  const isProfit = points[points.length-1] >= 0;
+  const lineColor = isProfit ? '#00e396' : '#ff4560';
+
+  // Zero line
+  const zeroY = py(0);
+  ctx.setLineDash([3*dpr, 4*dpr]);
+  ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+  ctx.lineWidth = 1 * dpr;
+  ctx.beginPath(); ctx.moveTo(0, zeroY); ctx.lineTo(W, zeroY); ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Gradient fill
+  const grad = ctx.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0, lineColor + '50');
+  grad.addColorStop(1, lineColor + '00');
+  ctx.beginPath();
+  ctx.moveTo(px(0), py(points[0]));
+  for (let i = 1; i < points.length; i++) ctx.lineTo(px(i), py(points[i]));
+  ctx.lineTo(px(points.length-1), H);
+  ctx.lineTo(px(0), H);
+  ctx.closePath();
+  ctx.fillStyle = grad; ctx.fill();
+
+  // Main line
+  ctx.beginPath();
+  ctx.strokeStyle = lineColor;
+  ctx.lineWidth = 2 * dpr;
+  ctx.moveTo(px(0), py(points[0]));
+  for (let i = 1; i < points.length; i++) ctx.lineTo(px(i), py(points[i]));
+  ctx.stroke();
+
+  // End dot
+  const lastX = px(points.length-1), lastY = py(points[points.length-1]);
+  ctx.beginPath();
+  ctx.arc(lastX, lastY, 3*dpr, 0, Math.PI*2);
+  ctx.fillStyle = lineColor; ctx.fill();
+
+  // Total profit label
+  const total = points[points.length-1];
+  ctx.font = `bold ${9*dpr}px Share Tech Mono`;
+  ctx.fillStyle = lineColor;
+  ctx.fillText((total>=0?'+':'')+'$'+total.toFixed(2), 6*dpr, 12*dpr);
+}
 
 </script>
 </body>
