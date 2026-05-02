@@ -170,61 +170,15 @@ body::before { content: ''; position: fixed; inset: 0; background-image: linear-
     <div class="notice-step"><div class="notice-num">4</div><div>Gehe zu <b>Authentication → Sign-in method</b> → aktiviere <b>E-Mail/Passwort</b></div></div>
     <div class="notice-step"><div class="notice-num">5</div><div>Ersetze den Platzhalter unten in der Datei <code>index.html</code> mit deiner echten Firebase-Konfiguration:</div></div>
     <div class="notice-code">// ▼ HIER DEINE FIREBASE-KONFIG EINFÜGEN ▼
-
-Projekteinstellungen
-Allgemein
-Cloud Messaging
-Integrationen
-Dienstkonten
-Datenschutz
-Nutzer und Berechtigungen
-Benachrichtigungen
-Ihr Projekt
-Projektname
-tradeos
-Projekt-ID
-tradeos-213a4
-Projektnummer
-290408586738
-Umgebung
-Mit dieser Einstellung wird Ihr Projekt für verschiedene Phasen des Applebenszyklus angepasst
-Umgebungstyp
-Ohne Angabe
-Meine Apps
-Web-Apps
-tradeos-web
-Web-App
-App-Nickname
-tradeos-web
-App-ID
-1:290408586738:web:1d86843f88222fd04f1f6b
-SDK-Einrichtung und -Konfiguration
-
-npm
-
-CDN
-
-Konfiguration
-Wenn Sie schon npm und einen Module Bundler wie Webpack oder Rollup verwenden, können Sie mit dem folgenden Befehl das neueste SDK installieren (weitere Informationen):
-
-npm install firebase
-Initialisieren Sie anschließend Firebase und verwenden Sie die SDKs für die gewünschten Produkte.
-
-// Import the functions you need from the SDKs you need
-import { initializeApp } from "firebase/app";
-// TODO: Add SDKs for Firebase products that you want to use
-// https://firebase.google.com/docs/web/setup#available-libraries
-
-// Your web app's Firebase configuration
 const firebaseConfig = {
   apiKey: "AIzaSyDlHLW121lpuf_NFhOxnqyt8j43MpMiKZs",
   authDomain: "tradeos-213a4.firebaseapp.com",
-  databaseURL: "https://tradeos-213a4-default-rtdb.europe-west1.firebasedatabase.app",
   projectId: "tradeos-213a4",
   storageBucket: "tradeos-213a4.firebasestorage.app",
   messagingSenderId: "290408586738",
   appId: "1:290408586738:web:1d86843f88222fd04f1f6b"
-};</div>
+};
+</div>
     <div class="notice-step"><div class="notice-num">6</div><div>Datei speichern → auf GitHub hochladen → fertig!</div></div>
     <button class="btn-confirm" style="margin-top:16px" onclick="dismissNotice()">VERSTANDEN — SPÄTER EINRICHTEN</button>
   </div>
