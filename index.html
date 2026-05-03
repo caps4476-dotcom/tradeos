@@ -932,10 +932,9 @@ function processPrices(){
 // ══════════════════════════════════════
 function drawCandlestick(botId,candles,lastPrice,botState){
   const canvas=document.getElementById(`ccandle-${botId}`);
-  if(!canvas)return;
+  if(!resizeCanvas(canvas))return;
   const dpr=window.devicePixelRatio||1;
-  const W=canvas.clientWidth*dpr,H=canvas.clientHeight*dpr;
-  if(canvas.width!==W||canvas.height!==H){canvas.width=W;canvas.height=H;}
+  const W=canvas.width, H=canvas.height;
   const ctx=canvas.getContext('2d');
   ctx.clearRect(0,0,W,H);
 
@@ -1000,10 +999,10 @@ function drawLine(ctx,data,W,H,color){
 // ══════════════════════════════════════
 function drawRSI(botId,rsiH,cur,osLvl,obLvl){
   const canvas=document.getElementById(`crsi-${botId}`);
-  if(!canvas||rsiH.length<2)return;
+  if(!resizeCanvas(canvas))return;
+  if(rsiH.length<2)return;
   const dpr=window.devicePixelRatio||1;
-  const W=canvas.clientWidth*dpr,H=canvas.clientHeight*dpr;
-  if(canvas.width!==W||canvas.height!==H){canvas.width=W;canvas.height=H;}
+  const W=canvas.width, H=canvas.height;
   const ctx=canvas.getContext('2d');ctx.clearRect(0,0,W,H);
   const pad=H*0.06,py=v=>pad+(1-v/100)*(H-pad*2),px=i=>(i/(rsiH.length-1))*W;
 
@@ -1058,97 +1057,110 @@ function calcEMA(h,period=9){
 }
 
 // ══════════════════════════════════════
-//  TRENDFILTER — verhindert Short in Aufwärtstrend und Long in Abwärtstrend
+//  CANVAS HELPER — funktioniert auf Tablet & Phone
 // ══════════════════════════════════════
+function resizeCanvas(canvas){
+  if(!canvas)return false;
+  const dpr=window.devicePixelRatio||1;
+  const rect=canvas.getBoundingClientRect();
+  const W=Math.round(rect.width*dpr);
+  const H=Math.round(rect.height*dpr);
+  if(W<2||H<2)return false; // noch nicht gerendert
+  if(canvas.width===W&&canvas.height===H)return true;
+  canvas.width=W;canvas.height=H;
+  return true;
+}
+
+// Nach erstem Render alle Charts neu zeichnen
+window.addEventListener('resize',()=>{
+  for(let i=1;i<=3;i++){
+    const b=state.bots[i];
+    const price=prices[b.asset];
+    if(price){
+      drawCandlestick(i,b.candles,price,b);
+      if(b.rsiH.length>=2)drawRSI(i,b.rsiH,b.rsiH.at(-1),b.rsiOS,b.rsiOB);
+    }
+  }
+});
 function getTrend(priceH){
-  // Vergleicht EMA20 mit EMA50 — positiv = Aufwärtstrend
-  if(priceH.length<20)return 0; // noch kein klarer Trend
+  if(priceH.length<20)return null; // zu wenig Daten
   const ema20=calcEMA(priceH,20);
   const ema50=priceH.length>=50?calcEMA(priceH,50):calcEMA(priceH,priceH.length);
-  return ema20-ema50; // positiv = bullisch, negativ = bärisch
+  const diff=(ema20-ema50)/ema50*100;
+  if(diff>0.05)return'bull';
+  if(diff<-0.05)return'bear';
+  return'neutral';
 }
 
 // ══════════════════════════════════════
-//  BOT LOGIC — mit Trendfilter
+//  BOT LOGIC — Trendfilter & kein Trading bis Trend bekannt
 // ══════════════════════════════════════
 function runBotLogic(id,price,rsi){
   const b=state.bots[id];
   const OS=b.rsiOS, OB=b.rsiOB;
+  const trend=getTrend(b.priceH);
 
   if(!b.inTrade){
+    // Kein Trading bis Trend bekannt (~60 Sek nach Start)
+    if(trend===null){
+      const rem=Math.max(0,20-b.priceH.length);
+      if(rem>0&&b.priceH.length%5===0)
+        botLog(id,`⏳ Trend-Analyse... noch ~${rem*3}s`,'var(--text-dim)');
+      return;
+    }
+
     let goLong=false, goShort=false;
-    const trend=getTrend(b.priceH);
-    const bullish=trend>0;   // Aufwärtstrend
-    const bearish=trend<0;   // Abwärtstrend
-    const trendKnown=b.priceH.length>=20;
 
     if(id===1){
       // BOT ALPHA: RSI + Trend
-      // Long NUR wenn RSI überverkauft UND Aufwärtstrend (oder kein klarer Trend)
-      // Short NUR wenn RSI überkauft UND Abwärtstrend (oder kein klarer Trend)
-      if(b.priceH.length>=10){
-        goLong  = rsi < OS && (!trendKnown || bullish);
-        goShort = rsi > OB && (!trendKnown || bearish);
-      }
-
+      goLong  = rsi<OS && (trend==='bull'||trend==='neutral');
+      goShort = rsi>OB && trend==='bear'; // Short NUR bei klarem Abwärtstrend
     } else if(id===2){
-      // BOT BETA: RSI-Trend + Markttrend kombiniert
+      // BOT BETA: RSI-Momentum + Trend
       if(b.rsiH.length>=4){
-        const rsiNow  = b.rsiH.at(-1);
-        const rsiPrev = b.rsiH.at(-3);
-        const rsiTrend= rsiNow - rsiPrev;
-        // Long: RSI steigt (Erholung) UND Markt bullisch oder neutral
-        goLong  = rsiNow < (OS+15) && rsiTrend > 1.5 && (!trendKnown || bullish);
-        // Short: RSI fällt UND Markt bärisch oder neutral
-        goShort = rsiNow > (OB-15) && rsiTrend < -1.5 && (!trendKnown || bearish);
+        const rsiNow=b.rsiH.at(-1);
+        const rsiPrev=b.rsiH.at(-3);
+        const rsiTrend=rsiNow-rsiPrev;
+        goLong  = rsiNow<(OS+15) && rsiTrend>2 && (trend==='bull'||trend==='neutral');
+        goShort = rsiNow>(OB-15) && rsiTrend<-2 && trend==='bear';
       }
-
     } else {
-      // BOT GAMMA: RSI Scalper mit Trendfilter
-      goLong  = rsi < OS && (!trendKnown || bullish);
-      goShort = rsi > OB && (!trendKnown || bearish);
+      // BOT GAMMA: RSI Scalper + Trend
+      goLong  = rsi<OS && (trend==='bull'||trend==='neutral');
+      goShort = rsi>OB && trend==='bear';
     }
 
     if(goLong){
       b.inTrade=true; b.direction='long'; b.entry=price;
       b.longCount=(b.longCount||0)+1;
       setStatus(id,'long'); updateDirPanel(id);
-      const trendStr=bullish?'↑Trend':bearish?'↓Trend':'~neutral';
-      botLog(id,`🟢 LONG @ ${fmtPrice(price,b.asset)} | RSI ${rsi.toFixed(0)} | ${trendStr}`,'var(--accent2)');
+      botLog(id,`🟢 LONG @ ${fmtPrice(price,b.asset)} RSI:${rsi.toFixed(0)} [${trend}]`,'var(--accent2)');
     } else if(goShort){
       b.inTrade=true; b.direction='short'; b.entry=price;
       b.shortCount=(b.shortCount||0)+1;
       setStatus(id,'short'); updateDirPanel(id);
-      const trendStr=bullish?'↑Trend':bearish?'↓Trend':'~neutral';
-      botLog(id,`🔵 SHORT @ ${fmtPrice(price,b.asset)} | RSI ${rsi.toFixed(0)} | ${trendStr}`,'#a855f7');
+      botLog(id,`🔵 SHORT @ ${fmtPrice(price,b.asset)} RSI:${rsi.toFixed(0)} [${trend}]`,'#a855f7');
     }
 
   } else {
     const rawDiff=(price-b.entry)/b.entry;
-    const diff=b.direction==='short' ? -rawDiff : rawDiff;
+    const diff=b.direction==='short'?-rawDiff:rawDiff;
 
     // Stop-Loss
-    if(diff <= -b.stopLoss){
-      closeBotTrade(id,price,'STOP LOSS'); return;
-    }
+    if(diff<=-b.stopLoss){ closeBotTrade(id,price,'STOP LOSS'); return; }
 
-    // Take-Profit: realistisch für kurze Haltedauer bei 3s Ticks
-    // Bot 1: 1.5%, Bot 2: 1.0%, Bot 3: 0.8%
-    const tp = id===1 ? 0.015 : id===2 ? 0.010 : 0.008;
-
-    // RSI-Exit: Long schließen wenn überkauft, Short wenn überverkauft
-    const exitByRsi = b.direction==='long' ? rsi > OB : rsi < OS;
-
-    // Trendwechsel-Exit: wenn Trend gegen Position dreht
-    const trend=getTrend(b.priceH);
-    const trendExit = b.priceH.length>=20 && (
-      (b.direction==='long'  && trend < -0.5) ||  // Long in Abwärtstrend → exit
-      (b.direction==='short' && trend >  0.5)     // Short in Aufwärtstrend → exit
+    // Take-Profit
+    const tp=id===1?0.015:id===2?0.010:0.008;
+    const exitRsi=b.direction==='long'?rsi>OB:rsi<OS;
+    // Trendwechsel gegen Position → sofort raus
+    const exitTrend=trend!==null&&(
+      (b.direction==='long'  && trend==='bear') ||
+      (b.direction==='short' && trend==='bull')
     );
 
-    if(diff>=tp || exitByRsi || trendExit){
-      const reason=diff>=tp?'TP':exitByRsi?'RSI-EXIT':'TREND-EXIT';
-      closeBotTrade(id,price,reason);
+    if(diff>=tp||exitRsi||exitTrend){
+      const why=diff>=tp?'TP':exitRsi?'RSI':'TREND-WECHSEL';
+      closeBotTrade(id,price,why);
     }
   }
 }
@@ -1361,9 +1373,9 @@ function drawProfitCurve(){
   const trades=[...state.tradeHistory].reverse();
   if(trades.length<2){if(empty)empty.style.display='flex';return;}
   if(empty)empty.style.display='none';
+  if(!resizeCanvas(canvas))return;
   const dpr=window.devicePixelRatio||1;
-  const W=canvas.clientWidth*dpr,H=canvas.clientHeight*dpr;
-  if(canvas.width!==W||canvas.height!==H){canvas.width=W;canvas.height=H;}
+  const W=canvas.width, H=canvas.height;
   const ctx=canvas.getContext('2d');ctx.clearRect(0,0,W,H);
 
   const pts=[0];let cum=0;
