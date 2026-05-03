@@ -865,30 +865,49 @@ function tickSimPrices(){
 }
 
 // ══════════════════════════════════════
-//  LIVE FEED
+//  LIVE FEED — nutzt echte Kerzendaten für RSI
 // ══════════════════════════════════════
-async function fetchPrices(){
-  // Tick simulated assets
-  tickSimPrices();
 
-  // Fetch live crypto
+// Cache für Kerzendaten: { asset: [close prices] }
+const klineCache={};
+let klineFetchCounter=0;
+
+async function fetchPrices(){
+  tickSimPrices();
+  klineFetchCounter++;
+
   const liveKeys=new Set(
     Object.values(state.bots).map(b=>b.asset).concat([state.manual.asset])
   );
+
   for(const k of liveKeys){
     if(!ASSETS[k]||!ASSETS[k].live)continue;
     try{
+      // Aktuellen Preis immer holen
       const r=await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${ASSETS[k].sym}`);
       const d=await r.json();
       if(d.price)prices[k]=parseFloat(d.price);
     }catch(e){}
+
+    // Kerzendaten alle 10 Ticks (~30 Sek) aktualisieren für RSI
+    if(klineFetchCounter%10===1||!klineCache[k]){
+      try{
+        // 1-Minuten-Kerzen der letzten 60 Minuten
+        const r=await fetch(`https://api.binance.com/api/v3/klines?symbol=${ASSETS[k].sym}&interval=1m&limit=60`);
+        const d=await r.json();
+        if(Array.isArray(d)&&d.length>0){
+          // Schlusskurse der Kerzen als RSI-Basis
+          klineCache[k]=d.map(c=>parseFloat(c[4])); // Index 4 = Schlusskurs
+        }
+      }catch(e){}
+    }
   }
 
   processPrices();
   updateManualPrice();
   updateHeader();
-  document.getElementById('sync-time').textContent=new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
-  // Nicht bei jedem Tick speichern — nur bei Trades (saveNow) oder Einstellungen (save)
+  document.getElementById('sync-time').textContent=
+    new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
 }
 
 // ══════════════════════════════════════
@@ -917,6 +936,8 @@ function processPrices(){
 
     const prev=prevPrices[b.asset];
     prevPrices[b.asset]=price;
+
+    // Preis-History für Candlestick (Tick-Daten)
     b.priceH.push(price);
     if(b.priceH.length>80)b.priceH.shift();
 
@@ -935,23 +956,26 @@ function processPrices(){
 
     drawCandlestick(i,b.candles,price,b);
 
-    // Mindestens 15 Ticks (~45 Sek) für stabilen RSI
-    if(b.priceH.length>=15){
-      const rsi=calcRSI(b.priceH);
-      // Sicherheitsprüfung
-      if(isNaN(rsi)||rsi<1||rsi>99){
-        // Ungültiger RSI — ignorieren, nicht loggen (würde Log fluten)
-      } else {
+    // RSI aus echten Kerzendaten (viel aussagekräftiger als Tick-Daten)
+    const isLive=ASSETS[b.asset]?.live;
+    const rsiSource = isLive
+      ? (klineCache[b.asset]||[])   // Live: echte 1m-Kerzen
+      : b.priceH;                    // Sim: Tick-Preise
+
+    if(rsiSource.length>=15){
+      const rsi=calcRSI(rsiSource);
+      if(!isNaN(rsi)&&rsi>=1&&rsi<=99){
         b.rsiH.push(rsi);
         if(b.rsiH.length>80)b.rsiH.shift();
         drawRSI(i,b.rsiH,rsi,b.rsiOS,b.rsiOB);
         if(b.running)runBotLogic(i,price,rsi);
       }
     } else if(b.running&&b.priceH.length>0&&b.priceH.length%5===0){
-      const rem=15-b.priceH.length;
-      botLog(i,`⏳ Initialisierung... noch ca. ${rem*3}s`,'var(--text-dim)');
+      const rem=Math.max(0,15-rsiSource.length);
+      if(rem>0)botLog(i,`⏳ RSI-Daten laden... ${rem} Kerzen fehlen`,'var(--text-dim)');
     }
-    // Notfall Stop-Loss auch wenn Bot gestoppt wurde
+
+    // Notfall Stop-Loss auch wenn Bot gestoppt
     if(b.inTrade&&!b.running&&b.entry>0){
       const rawDiff=(price-b.entry)/b.entry;
       const diff=b.direction==='short'?-rawDiff:rawDiff;
@@ -1133,10 +1157,13 @@ window.addEventListener('resize',()=>{
     }
   }
 });
-function getTrend(priceH){
-  if(priceH.length<20)return null; // zu wenig Daten
-  const ema20=calcEMA(priceH,20);
-  const ema50=priceH.length>=50?calcEMA(priceH,50):calcEMA(priceH,priceH.length);
+function getTrend(priceH, asset){
+  // Für Live-Crypto: echte 1m-Kerzendaten nutzen (viel aussagekräftiger)
+  const data=(ASSETS[asset]?.live&&(klineCache[asset]||[]).length>=20)
+    ? klineCache[asset] : priceH;
+  if(data.length<20)return null;
+  const ema20=calcEMA(data,20);
+  const ema50=data.length>=50?calcEMA(data,50):calcEMA(data,data.length);
   const diff=(ema20-ema50)/ema50*100;
   if(diff>0.05)return'bull';
   if(diff<-0.05)return'bear';
@@ -1149,14 +1176,15 @@ function getTrend(priceH){
 function runBotLogic(id,price,rsi){
   const b=state.bots[id];
   const OS=b.rsiOS, OB=b.rsiOB;
-  const trend=getTrend(b.priceH);
+  const trend=getTrend(b.priceH, b.asset);
 
   if(!b.inTrade){
-    // Kein Trading bis Trend bekannt (~60 Sek nach Start)
+    // Kein Trading bis Trend bekannt
     if(trend===null){
-      const rem=Math.max(0,20-b.priceH.length);
+      const src=ASSETS[b.asset]?.live?(klineCache[b.asset]||[]):b.priceH;
+      const rem=Math.max(0,20-src.length);
       if(rem>0&&b.priceH.length%5===0)
-        botLog(id,`⏳ Trend-Analyse... noch ~${rem*3}s`,'var(--text-dim)');
+        botLog(id,`⏳ Trend-Analyse... ${rem} Datenpunkte fehlen`,'var(--text-dim)');
       return;
     }
 
@@ -1204,9 +1232,10 @@ function runBotLogic(id,price,rsi){
     const tp=id===1?0.015:id===2?0.010:0.008;
     const exitRsi=b.direction==='long'?rsi>OB:rsi<OS;
     // Trendwechsel gegen Position → sofort raus
-    const exitTrend=trend!==null&&(
-      (b.direction==='long'  && trend==='bear') ||
-      (b.direction==='short' && trend==='bull')
+    const currentTrend=getTrend(b.priceH,b.asset);
+    const exitTrend=currentTrend!==null&&(
+      (b.direction==='long'  && currentTrend==='bear') ||
+      (b.direction==='short' && currentTrend==='bull')
     );
 
     if(diff>=tp||exitRsi||exitTrend){
