@@ -566,15 +566,25 @@ function getSerial(){
   for(let i=1;i<=3;i++){s.bots[i].priceH=[];s.bots[i].rsiH=[];s.bots[i].candles=[];}
   return s;
 }
+
+// Sofort speichern — für Trades und wichtige Änderungen
+async function saveNow(){
+  const data=getSerial();
+  if(FIREBASE_OK&&currentUserId&&!isAnonymous){
+    try{
+      await setDoc(doc(db,'users',currentUserId),data,{merge:true});
+      showSave('☁ GESPEICHERT');
+    }catch(e){saveLocal(data);}
+  } else {
+    saveLocal(data);
+    showSave('💾 LOKAL');
+  }
+}
+
+// Mit Debounce — für Einstellungsänderungen (RSI, Stop-Loss etc.)
 async function save(){
   if(saveTimeout)clearTimeout(saveTimeout);
-  saveTimeout=setTimeout(async()=>{
-    const data=getSerial();
-    if(FIREBASE_OK&&currentUserId&&!isAnonymous){
-      try{await setDoc(doc(db,'users',currentUserId),data,{merge:true});showSave('☁ CLOUD GESPEICHERT');}
-      catch(e){saveLocal(data);}
-    } else {saveLocal(data);showSave('💾 LOKAL GESPEICHERT');}
-  },1500);
+  saveTimeout=setTimeout(()=>saveNow(),800);
 }
 function saveLocal(d){localStorage.setItem(LOCAL_KEY,JSON.stringify(d));}
 function loadLocal(){
@@ -849,7 +859,7 @@ async function fetchPrices(){
   updateManualPrice();
   updateHeader();
   document.getElementById('sync-time').textContent=new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
-  save();
+  // Nicht bei jedem Tick speichern — nur bei Trades (saveNow) oder Einstellungen (save)
 }
 
 // ══════════════════════════════════════
@@ -1151,13 +1161,24 @@ function closeBotTrade(id,price,type){
   const invested=base*b.risk;
   const gain=invested*diff;
 
-  state.balance+=gain;b.pnl+=gain;b.inTrade=false;
+  // Sicherheitscheck: Balance darf nicht negativ werden
+  const newBalance=state.balance+gain;
+  if(newBalance<0){
+    // Trade wird gecancelt wenn Balance negativ würde
+    b.inTrade=false;
+    botLog(id,'⚠ Trade gecancelt — nicht genug Kapital','var(--warn)');
+    setStatus(id,'idle');updateDirPanel(id);return;
+  }
+
+  const balBefore=state.balance;
+  state.balance=newBalance;
+  b.pnl+=gain;b.inTrade=false;
   if(gain>=0)state.wins++;else state.losses++;
   state.totalTrades++;
 
   const isStop=type==='STOP LOSS';
   const emoji=isStop?'🔴':(b.direction==='long'?'🟢':'🔵');
-  botLog(id,`${emoji} ${b.direction.toUpperCase()} ${type} ${gain>=0?'+':''}$${gain.toFixed(2)} (${(diff*100).toFixed(2)}%)`,gain>=0?'var(--win)':'var(--loss)');
+  botLog(id,`${emoji} ${b.direction.toUpperCase()} ${type}: ${gain>=0?'+':''}$${gain.toFixed(2)} | Konto: $${state.balance.toFixed(2)}`,gain>=0?'var(--win)':'var(--loss)');
   setStatus(id,isStop?'stop':'idle');
   updateDirPanel(id);
 
@@ -1172,7 +1193,8 @@ function closeBotTrade(id,price,type){
 
   const pe=document.getElementById(`bpnl-${id}`);
   if(pe){pe.textContent=`${b.pnl>=0?'+':''}$${b.pnl.toFixed(2)}`;pe.className=`bot-pnl${b.pnl>=0?' pnl-pos':' pnl-neg'}`;}
-  updateHeader();save();
+  updateHeader();
+  saveNow(); // Sofort speichern nach jedem Trade!
 }
 
 function updateDirPanel(id){
@@ -1302,7 +1324,7 @@ window.manualSell=()=>{
   document.getElementById('btn-buy-manual').disabled=false;
   document.getElementById('btn-sell-manual').disabled=true;
   document.getElementById('manual-open-trade').classList.add('none');
-  updateHeader();save();
+  updateHeader();saveNow();
 };
 function updateManualTradePnL(){
   if(!state.manual.inTrade)return;
@@ -1433,7 +1455,22 @@ window.resetConfirm=async()=>{
   location.reload();
 };
 
-function startFeed(){fetchPrices();setInterval(fetchPrices,3000);}
+function startFeed(){
+  fetchPrices();
+  setInterval(fetchPrices,3000);
+
+  // Speichern wenn Browser in Hintergrund geht oder Tab geschlossen wird
+  document.addEventListener('visibilitychange',()=>{
+    if(document.visibilityState==='hidden') saveNow();
+  });
+  window.addEventListener('beforeunload',()=>{
+    // Synchrones lokales Backup beim Schließen
+    saveLocal(getSerial());
+  });
+
+  // Alle 30 Sekunden automatisch speichern als Sicherheitsnetz
+  setInterval(()=>saveNow(),30000);
+}
 
 </script>
 </body>
