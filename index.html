@@ -454,9 +454,9 @@ const LOCAL_KEY='TRADEOS_V3';
 let state={
   balance:1000,startBalance:1000,wins:0,losses:0,totalTrades:0,tradeHistory:[],
   bots:{
-    1:{running:false,asset:'BTC', risk:0.10,stopLoss:0.03,compound:true,rsiOS:30,rsiOB:70,inTrade:false,direction:'long',entry:0,pnl:0,priceH:[],rsiH:[],candles:[],status:'idle'},
-    2:{running:false,asset:'ETH', risk:0.10,stopLoss:0.03,compound:true,rsiOS:32,rsiOB:68,inTrade:false,direction:'long',entry:0,pnl:0,priceH:[],rsiH:[],candles:[],status:'idle'},
-    3:{running:false,asset:'DOGE',risk:0.05,stopLoss:0.02,compound:true,rsiOS:28,rsiOB:65,inTrade:false,direction:'long',entry:0,pnl:0,priceH:[],rsiH:[],candles:[],status:'idle'},
+    1:{running:false,asset:'BTC', risk:0.10,stopLoss:0.03,compound:true,rsiOS:30,rsiOB:70,inTrade:false,direction:'long',entry:0,pnl:0,priceH:[],rsiH:[],candles:[],status:'idle',longCount:0,shortCount:0},
+    2:{running:false,asset:'ETH', risk:0.10,stopLoss:0.03,compound:true,rsiOS:32,rsiOB:68,inTrade:false,direction:'long',entry:0,pnl:0,priceH:[],rsiH:[],candles:[],status:'idle',longCount:0,shortCount:0},
+    3:{running:false,asset:'DOGE',risk:0.05,stopLoss:0.02,compound:true,rsiOS:28,rsiOB:65,inTrade:false,direction:'long',entry:0,pnl:0,priceH:[],rsiH:[],candles:[],status:'idle',longCount:0,shortCount:0},
   },
   manual:{asset:'BTC',cat:'crypto',inTrade:false,entry:0,amount:0,stopLoss:0.03,takeProfit:0.05,amtPct:5},
 };
@@ -598,6 +598,8 @@ function mergeState(saved){
     if(saved.bots?.[i]){
       def.bots[i]=Object.assign(def.bots[i],saved.bots[i]);
       def.bots[i].priceH=[];def.bots[i].rsiH=[];def.bots[i].candles=[];
+      def.bots[i].longCount=saved.bots[i].longCount||0;
+      def.bots[i].shortCount=saved.bots[i].shortCount||0;
     }
   }
   return def;
@@ -636,6 +638,29 @@ function buildBots(){
         </div>
         <div class="bot-pnl${b.pnl>=0?' pnl-pos':' pnl-neg'}" id="bpnl-${cfg.id}">${b.pnl>=0?'+':''}$${b.pnl.toFixed(2)}</div>
       </div>
+
+      <!-- RICHTUNGS-PANEL -->
+      <div id="dir-panel-${cfg.id}" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px">
+        <div style="background:rgba(0,227,150,0.07);border:1px solid rgba(0,227,150,0.25);border-radius:8px;padding:7px 10px">
+          <div style="font-size:8px;color:var(--text-dim);font-family:var(--mono);letter-spacing:1px;margin-bottom:2px">📈 LONG (kaufen)</div>
+          <div style="font-family:var(--mono);font-size:11px;color:var(--win)" id="dir-long-${cfg.id}">
+            ${b.longCount||0} Trades
+          </div>
+          <div style="font-size:8px;color:var(--text-dim);font-family:var(--mono);margin-top:2px" id="dir-long-active-${cfg.id}">
+            ${b.inTrade&&b.direction==='long'?'⬤ AKTIV':'○ wartet'}
+          </div>
+        </div>
+        <div style="background:rgba(168,85,247,0.07);border:1px solid rgba(168,85,247,0.25);border-radius:8px;padding:7px 10px">
+          <div style="font-size:8px;color:var(--text-dim);font-family:var(--mono);letter-spacing:1px;margin-bottom:2px">📉 SHORT (verkaufen)</div>
+          <div style="font-family:var(--mono);font-size:11px;color:#a855f7" id="dir-short-${cfg.id}">
+            ${b.shortCount||0} Trades
+          </div>
+          <div style="font-size:8px;color:var(--text-dim);font-family:var(--mono);margin-top:2px" id="dir-short-active-${cfg.id}">
+            ${b.inTrade&&b.direction==='short'?'⬤ AKTIV':'○ wartet'}
+          </div>
+        </div>
+      </div>
+
       <div class="asset-scroll">${aOpts}</div>
       <div class="price-row">
         <div class="price-big" id="bprice-${cfg.id}">$---</div>
@@ -1043,12 +1068,16 @@ function runBotLogic(id,price,rsi){
 
     if(goLong){
       b.inTrade=true;b.direction='long';b.entry=price;
+      b.longCount=(b.longCount||0)+1;
       setStatus(id,'long');
-      botLog(id,`🟢 LONG @ ${fmtPrice(price,b.asset)}`,'var(--accent2)');
+      updateDirPanel(id);
+      botLog(id,`🟢 LONG KAUF @ ${fmtPrice(price,b.asset)}`,'var(--accent2)');
     } else if(goShort){
       b.inTrade=true;b.direction='short';b.entry=price;
+      b.shortCount=(b.shortCount||0)+1;
       setStatus(id,'short');
-      botLog(id,`🔵 SHORT @ ${fmtPrice(price,b.asset)}`,'#a855f7');
+      updateDirPanel(id);
+      botLog(id,`🔵 SHORT VERKAUF @ ${fmtPrice(price,b.asset)}`,'#a855f7');
     }
   } else {
     const rawDiff=(price-b.entry)/b.entry;
@@ -1079,6 +1108,7 @@ function closeBotTrade(id,price,type){
   const emoji=isStop?'🔴':(b.direction==='long'?'🟢':'🔵');
   botLog(id,`${emoji} ${b.direction.toUpperCase()} ${type} ${gain>=0?'+':''}$${gain.toFixed(2)} (${(diff*100).toFixed(2)}%)`,gain>=0?'var(--win)':'var(--loss)');
   setStatus(id,isStop?'stop':'idle');
+  updateDirPanel(id);
 
   state.tradeHistory.unshift({
     time:new Date().toLocaleTimeString('de-DE'),
@@ -1092,6 +1122,27 @@ function closeBotTrade(id,price,type){
   const pe=document.getElementById(`bpnl-${id}`);
   if(pe){pe.textContent=`${b.pnl>=0?'+':''}$${b.pnl.toFixed(2)}`;pe.className=`bot-pnl${b.pnl>=0?' pnl-pos':' pnl-neg'}`;}
   updateHeader();save();
+}
+
+function updateDirPanel(id){
+  const b=state.bots[id];
+  const lc=document.getElementById(`dir-long-${id}`);
+  const la=document.getElementById(`dir-long-active-${id}`);
+  const sc=document.getElementById(`dir-short-${id}`);
+  const sa=document.getElementById(`dir-short-active-${id}`);
+  if(!lc)return;
+  lc.textContent=(b.longCount||0)+' Trades';
+  sc.textContent=(b.shortCount||0)+' Trades';
+  if(b.inTrade&&b.direction==='long'){
+    la.textContent='⬤ AKTIV';la.style.color='var(--win)';
+    sa.textContent='○ wartet';sa.style.color='';
+  } else if(b.inTrade&&b.direction==='short'){
+    sa.textContent='⬤ AKTIV';sa.style.color='#a855f7';
+    la.textContent='○ wartet';la.style.color='';
+  } else {
+    la.textContent=b.running?'○ wartet':'○ gestoppt';la.style.color='';
+    sa.textContent=b.running?'○ wartet':'○ gestoppt';sa.style.color='';
+  }
 }
 
 function setStatus(id,s){
@@ -1119,7 +1170,9 @@ window.toggleBot=id=>{
   const btn=document.getElementById(`bbtn-${id}`);
   btn.classList.toggle('running',b.running);
   btn.textContent=b.running?'⏹ BOT STOPPEN':'▶ BOT STARTEN';
-  if(!b.running)setStatus(id,'idle');save();
+  if(!b.running)setStatus(id,'idle');
+  updateDirPanel(id);
+  save();
 };
 window.selectBotAsset=(id,asset,el)=>{
   state.bots[id].asset=asset;state.bots[id].priceH=[];state.bots[id].rsiH=[];
