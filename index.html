@@ -105,15 +105,15 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
 .price-row{display:flex;align-items:baseline;gap:8px;margin-bottom:6px}
 .price-big{font-family:var(--mono);font-size:1.8em;color:#fff}
 .price-change{font-family:var(--mono);font-size:11px}
-.chart-wrap{background:var(--surface);border-radius:8px;margin-bottom:6px;position:relative;overflow:hidden}
+.chart-wrap{background:var(--surface);border-radius:8px;margin-bottom:6px;position:relative;}
 .chart-wrap canvas{width:100%;height:100%;display:block}
 .chart-label{position:absolute;top:4px;left:6px;font-size:8px;color:var(--text-dim);font-family:var(--mono);z-index:2;pointer-events:none}
 .chart-label-r{position:absolute;top:4px;right:6px;font-size:9px;font-family:var(--mono);z-index:2;pointer-events:none;font-weight:bold}
-/* ZOOM: default small, toggled big */
-.candle-chart{height:70px;transition:height .25s ease}
-.candle-chart.zoomed{height:150px}
-.rsi-chart{height:52px}
-.zoom-btn{position:absolute;bottom:3px;right:4px;z-index:5;background:rgba(5,11,20,.85);border:1px solid var(--border);color:var(--text-dim);font-size:9px;padding:2px 6px;border-radius:4px;cursor:pointer;font-family:var(--mono);transition:color .2s}
+/* ZOOM */
+.candle-chart{height:70px;transition:height .3s ease;overflow:hidden}
+.candle-chart.zoomed{height:160px}
+.rsi-chart{height:52px;overflow:hidden}
+.zoom-btn{position:absolute;bottom:3px;right:4px;z-index:5;background:rgba(5,11,20,.9);border:1px solid var(--border);color:var(--text-dim);font-size:9px;padding:2px 6px;border-radius:4px;cursor:pointer;font-family:var(--mono);transition:color .2s}
 .zoom-btn:hover{color:var(--accent);border-color:var(--accent)}
 
 /* RSI CONTROLS — number inputs */
@@ -778,6 +778,12 @@ window.toggleZoom=id=>{
   if(!wrap||!btn)return;
   const zoomed=wrap.classList.toggle('zoomed');
   btn.textContent=zoomed?'－ZOOM':'＋ZOOM';
+  // Canvas nach der CSS-Transition neu zeichnen
+  setTimeout(()=>{
+    const b=state.bots[id];
+    const price=prices[b.asset];
+    if(price)drawCandlestick(id,b.candles,price,b);
+  },320);
 };
 
 // ══════════════════════════════════════
@@ -1052,17 +1058,18 @@ function runBotLogic(id,price,rsi){
     let goLong=false, goShort=false;
 
     if(id===1){
-      // BOT ALPHA: RSI + EMA Kreuzung
-      // Kauft wenn RSI überverkauft UND Preis nah an EMA
-      // Shortet wenn RSI überkauft UND Preis nah an EMA
+      // BOT ALPHA: RSI + EMA
+      // Long wenn RSI überverkauft — EMA bestätigt Aufwärtspotenzial
+      // Short wenn RSI überkauft — EMA bestätigt Abwärtspotenzial
       if(b.priceH.length>=10){
         const ema=calcEMA(b.priceH,9);
-        const aboveEma=price>ema;
-        goLong  = rsi < OS;                      // überverkauft → kaufen
-        goShort = rsi > OB;                      // überkauft → shorten
-        // EMA-Filter: Long nur wenn Preis nicht zu weit unter EMA
-        if(goLong  && price < ema*0.990) goLong=false;
-        if(goShort && price > ema*1.010) goShort=false;
+        // Long: RSI überverkauft (Preis ist gefallen → liegt natürlich unter EMA, kein Filter nötig)
+        goLong  = rsi < OS;
+        // Short: RSI überkauft (Preis ist gestiegen → liegt natürlich über EMA)
+        goShort = rsi > OB;
+        // Schwacher EMA-Bestätigungs-Filter: nur extrem weit entfernte Preise blockieren
+        if(goLong  && price < ema*0.97) goLong=false;   // mehr als 3% unter EMA → zu riskant
+        if(goShort && price > ema*1.03) goShort=false;  // mehr als 3% über EMA → zu riskant
       }
 
     } else if(id===2){
