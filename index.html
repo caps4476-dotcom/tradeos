@@ -909,6 +909,11 @@ function processPrices(){
     // Mindestens 15 Ticks (~45 Sek) für stabilen RSI
     if(b.priceH.length>=15){
       const rsi=calcRSI(b.priceH);
+      // Sicherheitsprüfung: RSI muss plausibel sein
+      if(rsi<1||rsi>99||isNaN(rsi)){
+        botLog(i,`⚠ RSI ungültig (${rsi?.toFixed(0)}) — warte...`,'var(--warn)');
+        continue;
+      }
       b.rsiH.push(rsi);
       if(b.rsiH.length>80)b.rsiH.shift();
       drawRSI(i,b.rsiH,rsi,b.rsiOS,b.rsiOB);
@@ -1035,18 +1040,35 @@ function drawRSI(botId,rsiH,cur,osLvl,obLvl){
 function setLbl(id,txt,color){const el=document.getElementById(id);if(el){el.textContent=txt;el.style.color=color;}}
 
 // ══════════════════════════════════════
-//  RSI CALC — Fixed for small-price assets like DOGE
+//  RSI CALC — korrekte Berechnung für alle Assets
 // ══════════════════════════════════════
-function calcRSI(h,period=14){
-  if(h.length<period+1)return 50;
-  let gains=0,losses=0;
-  for(let i=h.length-period;i<h.length;i++){
-    const d=h[i]-h[i-1];
-    if(d>0)gains+=d;else losses+=Math.abs(d);
+function calcRSI(h, period=14){
+  if(h.length < period+1) return 50; // nicht genug Daten → neutral
+
+  // Berechne durchschnittliche Gewinne und Verluste
+  let avgGain=0, avgLoss=0;
+
+  // Erste Periode: einfacher Durchschnitt
+  for(let i=1; i<=period; i++){
+    const d = h[h.length - period - 1 + i] - h[h.length - period - 2 + i];
+    if(d > 0) avgGain += d;
+    else avgLoss += Math.abs(d);
   }
-  if(losses===0)return gains>0?100:50;
-  if(gains===0)return 0;
-  return 100-(100/(1+gains/losses));
+  avgGain /= period;
+  avgLoss /= period;
+
+  // Sonderfall: keine Bewegung überhaupt
+  if(avgGain === 0 && avgLoss === 0) return 50;
+
+  // Verhindere Division durch 0
+  if(avgLoss === 0) return 99; // fast sicher überkauft, aber nicht exakt 100
+  if(avgGain === 0) return 1;  // fast sicher überverkauft, aber nicht exakt 0
+
+  const rs = avgGain / avgLoss;
+  const rsi = 100 - (100 / (1 + rs));
+
+  // Sicherheitsprüfung: RSI muss zwischen 1 und 99 liegen
+  return Math.min(99, Math.max(1, rsi));
 }
 function calcEMA(h,period=9){
   if(h.length<period)return h.at(-1);
