@@ -483,8 +483,15 @@ window.dismissNotice=()=>{
 function startLocalMode(){
   isAnonymous=true;
   const saved=loadLocal();
-  if(saved){state=mergeState(saved);}
-  document.getElementById('setup-overlay').classList.remove('hidden');
+  if(saved){
+    state=mergeState(saved);
+    document.getElementById('login-screen').classList.add('hidden');
+    document.getElementById('user-badge').textContent='LOKAL';
+    launchApp();
+  } else {
+    document.getElementById('login-screen').classList.add('hidden');
+    document.getElementById('setup-overlay').classList.remove('hidden');
+  }
 }
 
 if(FIREBASE_OK){
@@ -598,18 +605,40 @@ function showSave(msg){
 }
 function mergeState(saved){
   const def=JSON.parse(JSON.stringify(state));
-  def.balance=saved.balance??def.balance;
-  def.startBalance=saved.startBalance??def.startBalance;
-  def.wins=saved.wins??0;def.losses=saved.losses??0;
-  def.totalTrades=saved.totalTrades??0;
-  def.tradeHistory=saved.tradeHistory??[];
-  def.manual=Object.assign(def.manual,saved.manual??{});
+  def.balance   = saved.balance      ?? def.balance;
+  def.startBalance = saved.startBalance ?? def.startBalance;
+  def.wins       = saved.wins        ?? 0;
+  def.losses     = saved.losses      ?? 0;
+  def.totalTrades= saved.totalTrades ?? 0;
+  def.tradeHistory = Array.isArray(saved.tradeHistory) ? saved.tradeHistory : [];
+  if(saved.manual) def.manual = Object.assign(def.manual, saved.manual);
+  // Manuellen Trade beim Laden als geschlossen behandeln (Preis unbekannt)
+  def.manual.inTrade = false;
+  def.manual.entry   = 0;
+  def.manual.amount  = 0;
+
   for(let i=1;i<=3;i++){
     if(saved.bots?.[i]){
-      def.bots[i]=Object.assign(def.bots[i],saved.bots[i]);
-      def.bots[i].priceH=[];def.bots[i].rsiH=[];def.bots[i].candles=[];
-      def.bots[i].longCount=saved.bots[i].longCount||0;
-      def.bots[i].shortCount=saved.bots[i].shortCount||0;
+      const sb = saved.bots[i];
+      def.bots[i].running    = sb.running    ?? false;
+      def.bots[i].asset      = sb.asset      ?? def.bots[i].asset;
+      def.bots[i].risk       = sb.risk       ?? 0.10;
+      def.bots[i].stopLoss   = sb.stopLoss   ?? 0.03;
+      def.bots[i].compound   = sb.compound   ?? true;
+      def.bots[i].rsiOS      = sb.rsiOS      ?? 30;
+      def.bots[i].rsiOB      = sb.rsiOB      ?? 70;
+      def.bots[i].pnl        = sb.pnl        ?? 0;
+      def.bots[i].longCount  = sb.longCount  ?? 0;
+      def.bots[i].shortCount = sb.shortCount ?? 0;
+      // Offene Positionen beim Laden schließen (Preis unbekannt)
+      def.bots[i].inTrade    = false;
+      def.bots[i].entry      = 0;
+      def.bots[i].direction  = 'long';
+      def.bots[i].status     = 'idle';
+      // Chart-Daten neu aufbauen
+      def.bots[i].priceH = [];
+      def.bots[i].rsiH   = [];
+      def.bots[i].candles= [];
     }
   }
   return def;
@@ -909,21 +938,21 @@ function processPrices(){
     // Mindestens 15 Ticks (~45 Sek) für stabilen RSI
     if(b.priceH.length>=15){
       const rsi=calcRSI(b.priceH);
-      // Sicherheitsprüfung: RSI muss plausibel sein
-      if(rsi<1||rsi>99||isNaN(rsi)){
-        botLog(i,`⚠ RSI ungültig (${rsi?.toFixed(0)}) — warte...`,'var(--warn)');
-        continue;
+      // Sicherheitsprüfung
+      if(isNaN(rsi)||rsi<1||rsi>99){
+        // Ungültiger RSI — ignorieren, nicht loggen (würde Log fluten)
+      } else {
+        b.rsiH.push(rsi);
+        if(b.rsiH.length>80)b.rsiH.shift();
+        drawRSI(i,b.rsiH,rsi,b.rsiOS,b.rsiOB);
+        if(b.running)runBotLogic(i,price,rsi);
       }
-      b.rsiH.push(rsi);
-      if(b.rsiH.length>80)b.rsiH.shift();
-      drawRSI(i,b.rsiH,rsi,b.rsiOS,b.rsiOB);
-      if(b.running)runBotLogic(i,price,rsi);
-    } else if(b.running&&b.priceH.length%5===0){
+    } else if(b.running&&b.priceH.length>0&&b.priceH.length%5===0){
       const rem=15-b.priceH.length;
       botLog(i,`⏳ Initialisierung... noch ca. ${rem*3}s`,'var(--text-dim)');
     }
-    // Emergency SL even when bot stopped
-    if(b.inTrade&&!b.running){
+    // Notfall Stop-Loss auch wenn Bot gestoppt wurde
+    if(b.inTrade&&!b.running&&b.entry>0){
       const rawDiff=(price-b.entry)/b.entry;
       const diff=b.direction==='short'?-rawDiff:rawDiff;
       if(diff<=-b.stopLoss)closeBotTrade(i,price,'STOP LOSS');
@@ -1288,10 +1317,18 @@ window.toggleBot=id=>{
   save();
 };
 window.selectBotAsset=(id,asset,el)=>{
-  state.bots[id].asset=asset;state.bots[id].priceH=[];state.bots[id].rsiH=[];
-  state.bots[id].candles=[];cBuilders[id]={};state.bots[id].inTrade=false;
+  const b=state.bots[id];
+  // Wenn Bot einen offenen Trade hat — warnen
+  if(b.inTrade){
+    if(!confirm(`Bot ${id} hat einen offenen Trade. Asset wechseln und Trade schließen?`))return;
+    b.inTrade=false; b.entry=0;
+  }
+  b.asset=asset; b.priceH=[]; b.rsiH=[];
+  b.candles=[]; cBuilders[id]={}; b.status='idle';
   el.closest('.asset-scroll').querySelectorAll('.asset-btn').forEach(e=>e.classList.remove('sel'));
-  el.classList.add('sel');save();
+  el.classList.add('sel');
+  setStatus(id,'idle');
+  save();
 };
 window.setBotRisk=(id,v)=>{state.bots[id].risk=parseFloat(v);save();};
 window.setBotSL=(id,v)=>{state.bots[id].stopLoss=parseFloat(v);save();};
@@ -1477,16 +1514,64 @@ function fmtPrice(p,key){
 }
 
 window.resetConfirm=async()=>{
-  if(!confirm('Konto wirklich zurücksetzen? Alle Daten werden gelöscht.'))return;
-  localStorage.removeItem(LOCAL_KEY);
-  if(FIREBASE_OK&&currentUserId&&auth.currentUser){
-    await setDoc(doc(db,'users',currentUserId),{
-      balance:state.startBalance,startBalance:state.startBalance,
-      wins:0,losses:0,totalTrades:0,tradeHistory:[],
-      bots:getSerial().bots,manual:state.manual
-    });
+  if(!confirm('Konto wirklich zurücksetzen?\n\nBalance, History und Bot-Statistiken werden gelöscht.\nBot-Einstellungen (Asset, RSI, Stop-Loss) bleiben erhalten.'))return;
+
+  // Frische Bot-Daten — Einstellungen behalten, Stats zurücksetzen
+  const freshBots={};
+  for(let i=1;i<=3;i++){
+    const b=state.bots[i];
+    freshBots[i]={
+      running:false,
+      asset:b.asset,
+      risk:b.risk,
+      stopLoss:b.stopLoss,
+      compound:b.compound,
+      rsiOS:b.rsiOS,
+      rsiOB:b.rsiOB,
+      inTrade:false,
+      direction:'long',
+      entry:0,
+      pnl:0,
+      longCount:0,
+      shortCount:0,
+      priceH:[],rsiH:[],candles:[],
+      status:'idle'
+    };
   }
-  location.reload();
+
+  const freshState={
+    balance:state.startBalance,
+    startBalance:state.startBalance,
+    wins:0,losses:0,totalTrades:0,
+    tradeHistory:[],
+    bots:freshBots,
+    manual:{...state.manual,inTrade:false,entry:0,amount:0}
+  };
+
+  // Erst lokal löschen
+  localStorage.removeItem(LOCAL_KEY);
+
+  // Dann in Firebase speichern und auf Bestätigung warten
+  if(FIREBASE_OK&&currentUserId&&auth.currentUser){
+    try{
+      await setDoc(doc(db,'users',currentUserId),freshState);
+      showSave('✓ Reset gespeichert');
+    }catch(e){
+      console.error('Reset Firebase Fehler:',e);
+    }
+  }
+
+  // State direkt im Speicher zurücksetzen (kein Reload nötig)
+  state=freshState;
+  prices={};prevPrices={};
+  cBuilders={1:{},2:{},3:{}};
+
+  // UI komplett neu aufbauen
+  buildBots();
+  buildManualAssets(manualCat||'crypto');
+  updateHeader();
+  renderHistory();
+  showSave('✓ Konto zurückgesetzt!');
 };
 
 function startFeed(){
