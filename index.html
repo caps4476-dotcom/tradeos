@@ -1048,7 +1048,18 @@ function calcEMA(h,period=9){
 }
 
 // ══════════════════════════════════════
-//  BOT LOGIC — Long & Short, alle 3 Bots geprüft
+//  TRENDFILTER — verhindert Short in Aufwärtstrend und Long in Abwärtstrend
+// ══════════════════════════════════════
+function getTrend(priceH){
+  // Vergleicht EMA20 mit EMA50 — positiv = Aufwärtstrend
+  if(priceH.length<20)return 0; // noch kein klarer Trend
+  const ema20=calcEMA(priceH,20);
+  const ema50=priceH.length>=50?calcEMA(priceH,50):calcEMA(priceH,priceH.length);
+  return ema20-ema50; // positiv = bullisch, negativ = bärisch
+}
+
+// ══════════════════════════════════════
+//  BOT LOGIC — mit Trendfilter
 // ══════════════════════════════════════
 function runBotLogic(id,price,rsi){
   const b=state.bots[id];
@@ -1056,57 +1067,53 @@ function runBotLogic(id,price,rsi){
 
   if(!b.inTrade){
     let goLong=false, goShort=false;
+    const trend=getTrend(b.priceH);
+    const bullish=trend>0;   // Aufwärtstrend
+    const bearish=trend<0;   // Abwärtstrend
+    const trendKnown=b.priceH.length>=20;
 
     if(id===1){
-      // BOT ALPHA: RSI + EMA
-      // Long wenn RSI überverkauft — EMA bestätigt Aufwärtspotenzial
-      // Short wenn RSI überkauft — EMA bestätigt Abwärtspotenzial
+      // BOT ALPHA: RSI + Trend
+      // Long NUR wenn RSI überverkauft UND Aufwärtstrend (oder kein klarer Trend)
+      // Short NUR wenn RSI überkauft UND Abwärtstrend (oder kein klarer Trend)
       if(b.priceH.length>=10){
-        const ema=calcEMA(b.priceH,9);
-        // Long: RSI überverkauft (Preis ist gefallen → liegt natürlich unter EMA, kein Filter nötig)
-        goLong  = rsi < OS;
-        // Short: RSI überkauft (Preis ist gestiegen → liegt natürlich über EMA)
-        goShort = rsi > OB;
-        // Schwacher EMA-Bestätigungs-Filter: nur extrem weit entfernte Preise blockieren
-        if(goLong  && price < ema*0.97) goLong=false;   // mehr als 3% unter EMA → zu riskant
-        if(goShort && price > ema*1.03) goShort=false;  // mehr als 3% über EMA → zu riskant
+        goLong  = rsi < OS && (!trendKnown || bullish);
+        goShort = rsi > OB && (!trendKnown || bearish);
       }
 
     } else if(id===2){
-      // BOT BETA: RSI-Divergenz + Momentum
-      // Prüft ob sich RSI in eine Richtung bewegt über 3 Ticks
-      // Viel empfindlicher als vorher — löst jetzt regelmäßig aus
+      // BOT BETA: RSI-Trend + Markttrend kombiniert
       if(b.rsiH.length>=4){
         const rsiNow  = b.rsiH.at(-1);
-        const rsiPrev = b.rsiH.at(-3);           // vor 3 Ticks (~9 Sek)
-        const rsiTrend= rsiNow - rsiPrev;        // positiv = steigend
-
-        // Long: RSI steigt aus überverkaufter Zone heraus
-        goLong  = rsiNow < (OS+15) && rsiTrend > 1.5;
-        // Short: RSI fällt aus überkaufter Zone heraus
-        goShort = rsiNow > (OB-15) && rsiTrend < -1.5;
+        const rsiPrev = b.rsiH.at(-3);
+        const rsiTrend= rsiNow - rsiPrev;
+        // Long: RSI steigt (Erholung) UND Markt bullisch oder neutral
+        goLong  = rsiNow < (OS+15) && rsiTrend > 1.5 && (!trendKnown || bullish);
+        // Short: RSI fällt UND Markt bärisch oder neutral
+        goShort = rsiNow > (OB-15) && rsiTrend < -1.5 && (!trendKnown || bearish);
       }
 
     } else {
-      // BOT GAMMA: Reiner RSI Scalper — einfach & zuverlässig
-      goLong  = rsi < OS;
-      goShort = rsi > OB;
+      // BOT GAMMA: RSI Scalper mit Trendfilter
+      goLong  = rsi < OS && (!trendKnown || bullish);
+      goShort = rsi > OB && (!trendKnown || bearish);
     }
 
     if(goLong){
       b.inTrade=true; b.direction='long'; b.entry=price;
       b.longCount=(b.longCount||0)+1;
       setStatus(id,'long'); updateDirPanel(id);
-      botLog(id,`🟢 LONG KAUF @ ${fmtPrice(price,b.asset)} | RSI ${rsi.toFixed(0)}`,'var(--accent2)');
+      const trendStr=bullish?'↑Trend':bearish?'↓Trend':'~neutral';
+      botLog(id,`🟢 LONG @ ${fmtPrice(price,b.asset)} | RSI ${rsi.toFixed(0)} | ${trendStr}`,'var(--accent2)');
     } else if(goShort){
       b.inTrade=true; b.direction='short'; b.entry=price;
       b.shortCount=(b.shortCount||0)+1;
       setStatus(id,'short'); updateDirPanel(id);
-      botLog(id,`🔵 SHORT @ ${fmtPrice(price,b.asset)} | RSI ${rsi.toFixed(0)}`,'#a855f7');
+      const trendStr=bullish?'↑Trend':bearish?'↓Trend':'~neutral';
+      botLog(id,`🔵 SHORT @ ${fmtPrice(price,b.asset)} | RSI ${rsi.toFixed(0)} | ${trendStr}`,'#a855f7');
     }
 
   } else {
-    // ── Position schließen ──
     const rawDiff=(price-b.entry)/b.entry;
     const diff=b.direction==='short' ? -rawDiff : rawDiff;
 
@@ -1115,14 +1122,23 @@ function runBotLogic(id,price,rsi){
       closeBotTrade(id,price,'STOP LOSS'); return;
     }
 
-    // Take-Profit je Bot
-    const tp = id===1 ? 0.04 : id===2 ? 0.025 : 0.015;
+    // Take-Profit: realistisch für kurze Haltedauer bei 3s Ticks
+    // Bot 1: 1.5%, Bot 2: 1.0%, Bot 3: 0.8%
+    const tp = id===1 ? 0.015 : id===2 ? 0.010 : 0.008;
 
     // RSI-Exit: Long schließen wenn überkauft, Short wenn überverkauft
-    const exitByRsi = b.direction==='long' ? rsi>OB : rsi<OS;
+    const exitByRsi = b.direction==='long' ? rsi > OB : rsi < OS;
 
-    if(diff>=tp || exitByRsi){
-      closeBotTrade(id,price,'CLOSE');
+    // Trendwechsel-Exit: wenn Trend gegen Position dreht
+    const trend=getTrend(b.priceH);
+    const trendExit = b.priceH.length>=20 && (
+      (b.direction==='long'  && trend < -0.5) ||  // Long in Abwärtstrend → exit
+      (b.direction==='short' && trend >  0.5)     // Short in Aufwärtstrend → exit
+    );
+
+    if(diff>=tp || exitByRsi || trendExit){
+      const reason=diff>=tp?'TP':exitByRsi?'RSI-EXIT':'TREND-EXIT';
+      closeBotTrade(id,price,reason);
     }
   }
 }
