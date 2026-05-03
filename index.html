@@ -890,13 +890,16 @@ function processPrices(){
 
     drawCandlestick(i,b.candles,price,b);
 
-    // Need at least 15 ticks for meaningful RSI
+    // Mindestens 15 Ticks (~45 Sek) für stabilen RSI
     if(b.priceH.length>=15){
       const rsi=calcRSI(b.priceH);
       b.rsiH.push(rsi);
       if(b.rsiH.length>80)b.rsiH.shift();
       drawRSI(i,b.rsiH,rsi,b.rsiOS,b.rsiOB);
       if(b.running)runBotLogic(i,price,rsi);
+    } else if(b.running&&b.priceH.length%5===0){
+      const rem=15-b.priceH.length;
+      botLog(i,`⏳ Initialisierung... noch ca. ${rem*3}s`,'var(--text-dim)');
     }
     // Emergency SL even when bot stopped
     if(b.inTrade&&!b.running){
@@ -1039,56 +1042,81 @@ function calcEMA(h,period=9){
 }
 
 // ══════════════════════════════════════
-//  BOT LOGIC — Long & Short, fixed for all asset types
+//  BOT LOGIC — Long & Short, alle 3 Bots geprüft
 // ══════════════════════════════════════
 function runBotLogic(id,price,rsi){
   const b=state.bots[id];
-  const OS=b.rsiOS,OB=b.rsiOB;
+  const OS=b.rsiOS, OB=b.rsiOB;
 
   if(!b.inTrade){
-    let goLong=false,goShort=false;
+    let goLong=false, goShort=false;
 
     if(id===1){
-      // RSI + EMA — works on any asset
-      const ema=calcEMA(b.priceH,9);
-      goLong = rsi<OS && price<=ema*1.005;
-      goShort= rsi>OB && price>=ema*0.995;
-    } else if(id===2){
-      // Momentum
-      if(b.priceH.length>=6){
-        const pct=(b.priceH.at(-1)-b.priceH.at(-6))/b.priceH.at(-6)*100;
-        goLong = pct>0.1 && rsi<OB-5;
-        goShort= pct<-0.1 && rsi>OS+5;
+      // BOT ALPHA: RSI + EMA Kreuzung
+      // Kauft wenn RSI überverkauft UND Preis nah an EMA
+      // Shortet wenn RSI überkauft UND Preis nah an EMA
+      if(b.priceH.length>=10){
+        const ema=calcEMA(b.priceH,9);
+        const aboveEma=price>ema;
+        goLong  = rsi < OS;                      // überverkauft → kaufen
+        goShort = rsi > OB;                      // überkauft → shorten
+        // EMA-Filter: Long nur wenn Preis nicht zu weit unter EMA
+        if(goLong  && price < ema*0.990) goLong=false;
+        if(goShort && price > ema*1.010) goShort=false;
       }
+
+    } else if(id===2){
+      // BOT BETA: RSI-Divergenz + Momentum
+      // Prüft ob sich RSI in eine Richtung bewegt über 3 Ticks
+      // Viel empfindlicher als vorher — löst jetzt regelmäßig aus
+      if(b.rsiH.length>=4){
+        const rsiNow  = b.rsiH.at(-1);
+        const rsiPrev = b.rsiH.at(-3);           // vor 3 Ticks (~9 Sek)
+        const rsiTrend= rsiNow - rsiPrev;        // positiv = steigend
+
+        // Long: RSI steigt aus überverkaufter Zone heraus
+        goLong  = rsiNow < (OS+15) && rsiTrend > 1.5;
+        // Short: RSI fällt aus überkaufter Zone heraus
+        goShort = rsiNow > (OB-15) && rsiTrend < -1.5;
+      }
+
     } else {
-      // Pure RSI scalper — simple, works on all assets including DOGE
-      goLong = rsi<OS;
-      goShort= rsi>OB;
+      // BOT GAMMA: Reiner RSI Scalper — einfach & zuverlässig
+      goLong  = rsi < OS;
+      goShort = rsi > OB;
     }
 
     if(goLong){
-      b.inTrade=true;b.direction='long';b.entry=price;
+      b.inTrade=true; b.direction='long'; b.entry=price;
       b.longCount=(b.longCount||0)+1;
-      setStatus(id,'long');
-      updateDirPanel(id);
-      botLog(id,`🟢 LONG KAUF @ ${fmtPrice(price,b.asset)}`,'var(--accent2)');
+      setStatus(id,'long'); updateDirPanel(id);
+      botLog(id,`🟢 LONG KAUF @ ${fmtPrice(price,b.asset)} | RSI ${rsi.toFixed(0)}`,'var(--accent2)');
     } else if(goShort){
-      b.inTrade=true;b.direction='short';b.entry=price;
+      b.inTrade=true; b.direction='short'; b.entry=price;
       b.shortCount=(b.shortCount||0)+1;
-      setStatus(id,'short');
-      updateDirPanel(id);
-      botLog(id,`🔵 SHORT VERKAUF @ ${fmtPrice(price,b.asset)}`,'#a855f7');
+      setStatus(id,'short'); updateDirPanel(id);
+      botLog(id,`🔵 SHORT @ ${fmtPrice(price,b.asset)} | RSI ${rsi.toFixed(0)}`,'#a855f7');
     }
+
   } else {
+    // ── Position schließen ──
     const rawDiff=(price-b.entry)/b.entry;
-    const diff=b.direction==='short'?-rawDiff:rawDiff;
+    const diff=b.direction==='short' ? -rawDiff : rawDiff;
 
-    if(diff<=-b.stopLoss){closeBotTrade(id,price,'STOP LOSS');return;}
+    // Stop-Loss
+    if(diff <= -b.stopLoss){
+      closeBotTrade(id,price,'STOP LOSS'); return;
+    }
 
-    // Take profit + RSI exit
-    const tp=id===1?0.04:id===2?0.03:0.02;
-    const exitByRsi=b.direction==='long'?rsi>OB:rsi<OS;
-    if(diff>=tp||exitByRsi)closeBotTrade(id,price,'CLOSE');
+    // Take-Profit je Bot
+    const tp = id===1 ? 0.04 : id===2 ? 0.025 : 0.015;
+
+    // RSI-Exit: Long schließen wenn überkauft, Short wenn überverkauft
+    const exitByRsi = b.direction==='long' ? rsi>OB : rsi<OS;
+
+    if(diff>=tp || exitByRsi){
+      closeBotTrade(id,price,'CLOSE');
+    }
   }
 }
 
@@ -1170,7 +1198,13 @@ window.toggleBot=id=>{
   const btn=document.getElementById(`bbtn-${id}`);
   btn.classList.toggle('running',b.running);
   btn.textContent=b.running?'⏹ BOT STOPPEN':'▶ BOT STARTEN';
-  if(!b.running)setStatus(id,'idle');
+  if(b.running){
+    const strat=id===1?'RSI+EMA':id===2?'RSI-Trend':'RSI-Scalper';
+    botLog(id,`▶ Bot gestartet | Strategie: ${strat} | OS:${b.rsiOS} OB:${b.rsiOB}`,'var(--accent)');
+  } else {
+    setStatus(id,'idle');
+    botLog(id,'⏹ Bot gestoppt','var(--text-dim)');
+  }
   updateDirPanel(id);
   save();
 };
