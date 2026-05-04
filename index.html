@@ -204,6 +204,18 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
   .price-big{font-size:1.5em!important}
   .tab{font-size:10px!important;padding:8px!important}
 }
+/* TURBO MODE */
+.turbo-panel{background:rgba(255,184,0,0.06);border:1px solid rgba(255,184,0,0.25);border-radius:10px;padding:10px 12px;margin-bottom:8px;transition:all .3s}
+.turbo-panel.on{background:rgba(255,184,0,0.12);border-color:var(--warn);box-shadow:0 0 14px rgba(255,184,0,0.15)}
+.turbo-header{display:flex;align-items:center;justify-content:space-between}
+.turbo-title{font-family:var(--mono);font-size:11px;color:var(--warn);letter-spacing:2px}
+.turbo-info{font-size:9px;color:var(--text-dim);font-family:var(--mono);margin-top:5px;line-height:1.5}
+.turbo-row{display:flex;align-items:center;gap:8px;margin-top:7px}
+.turbo-row-label{font-size:9px;color:var(--text-dim);font-family:var(--mono);flex:1}
+.turbo-select{background:var(--surface);border:1px solid var(--border);color:var(--text);padding:4px 6px;border-radius:6px;font-family:var(--mono);font-size:10px;outline:none;cursor:pointer}
+.bot-card.turbo-on{border-color:var(--warn)!important}
+.bot-card.turbo-on.running::before{background:var(--warn)!important;box-shadow:0 0 12px var(--warn)!important}
+.turbo-badge{display:inline-block;background:var(--warn);color:var(--bg);font-family:var(--mono);font-size:8px;font-weight:bold;padding:1px 5px;border-radius:3px;margin-left:4px;letter-spacing:1px;vertical-align:middle}
 </style>
 </head>
 <body>
@@ -454,9 +466,9 @@ const LOCAL_KEY='TRADEOS_V3';
 let state={
   balance:1000,startBalance:1000,wins:0,losses:0,totalTrades:0,tradeHistory:[],
   bots:{
-    1:{running:false,asset:'BTC', risk:0.10,stopLoss:0.03,compound:true,rsiOS:30,rsiOB:70,inTrade:false,direction:'long',entry:0,pnl:0,priceH:[],rsiH:[],candles:[],status:'idle',longCount:0,shortCount:0},
-    2:{running:false,asset:'ETH', risk:0.10,stopLoss:0.03,compound:true,rsiOS:32,rsiOB:68,inTrade:false,direction:'long',entry:0,pnl:0,priceH:[],rsiH:[],candles:[],status:'idle',longCount:0,shortCount:0},
-    3:{running:false,asset:'DOGE',risk:0.05,stopLoss:0.02,compound:true,rsiOS:28,rsiOB:65,inTrade:false,direction:'long',entry:0,pnl:0,priceH:[],rsiH:[],candles:[],status:'idle',longCount:0,shortCount:0},
+    1:{running:false,asset:'BTC', risk:0.10,stopLoss:0.03,compound:true,rsiOS:30,rsiOB:70,inTrade:false,direction:'long',entry:0,pnl:0,priceH:[],rsiH:[],candles:[],status:'idle',longCount:0,shortCount:0,turbo:false,turboMaxLoss:0.10},
+    2:{running:false,asset:'ETH', risk:0.10,stopLoss:0.03,compound:true,rsiOS:32,rsiOB:68,inTrade:false,direction:'long',entry:0,pnl:0,priceH:[],rsiH:[],candles:[],status:'idle',longCount:0,shortCount:0,turbo:false,turboMaxLoss:0.10},
+    3:{running:false,asset:'DOGE',risk:0.05,stopLoss:0.02,compound:true,rsiOS:28,rsiOB:65,inTrade:false,direction:'long',entry:0,pnl:0,priceH:[],rsiH:[],candles:[],status:'idle',longCount:0,shortCount:0,turbo:false,turboMaxLoss:0.10},
   },
   manual:{asset:'BTC',cat:'crypto',inTrade:false,entry:0,amount:0,stopLoss:0.03,takeProfit:0.05,amtPct:5},
 };
@@ -628,6 +640,8 @@ function mergeState(saved){
       def.bots[i].rsiOS      = sb.rsiOS      ?? 30;
       def.bots[i].rsiOB      = sb.rsiOB      ?? 70;
       def.bots[i].pnl        = sb.pnl        ?? 0;
+      def.bots[i].turbo       = sb.turbo       ?? false;
+      def.bots[i].turboMaxLoss= sb.turboMaxLoss?? 0.10;
       def.bots[i].longCount  = sb.longCount  ?? 0;
       def.bots[i].shortCount = sb.shortCount ?? 0;
       // Offene Positionen beim Laden schließen (Preis unbekannt)
@@ -766,6 +780,37 @@ function buildBots(){
       <button class="btn-bot${b.running?' running':''}" id="bbtn-${cfg.id}" onclick="toggleBot(${cfg.id})">
         ${b.running?'⏹ BOT STOPPEN':'▶ BOT STARTEN'}
       </button>
+
+      <!-- TURBO MODUS -->
+      <div class="turbo-panel${b.turbo?' on':''}" id="turbo-panel-${cfg.id}">
+        <div class="turbo-header">
+          <div class="turbo-title">⚡ TURBO MODUS${b.turbo?'<span class="turbo-badge">AN</span>':''}</div>
+          <label class="toggle">
+            <input type="checkbox" id="turbo-toggle-${cfg.id}"${b.turbo?' checked':''}
+              onchange="setTurbo(${cfg.id},this.checked)">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+        <div class="turbo-info" id="turbo-info-${cfg.id}">
+          ${b.turbo
+            ? '⚠ Schnelle Trades · RSI-Grenzen werden automatisch enger gesetzt · Höheres Risiko!'
+            : 'Mehr Trades durch engere RSI-Grenzen. Nur für den Simulator empfohlen.'}
+        </div>
+        <div class="turbo-row" id="turbo-maxloss-row-${cfg.id}" style="${b.turbo?'':'opacity:.4;pointer-events:none'}">
+          <div class="turbo-row-label">⛔ Auto-Stop bei Verlust von</div>
+          <select class="turbo-select" id="turbo-maxloss-${cfg.id}"
+            onchange="setTurboMaxLoss(${cfg.id},this.value)">
+            <option value="0.05"${b.turboMaxLoss==0.05?' selected':''}>5%</option>
+            <option value="0.10"${b.turboMaxLoss==0.10?' selected':''}>10%</option>
+            <option value="0.20"${b.turboMaxLoss==0.20?' selected':''}>20%</option>
+            <option value="0.50"${b.turboMaxLoss==0.50?' selected':''}>50%</option>
+          </select>
+          <div style="font-size:9px;color:var(--text-dim);font-family:var(--mono)">
+            = $${((b.turboMaxLoss||0.10)*state.balance).toFixed(0)} max
+          </div>
+        </div>
+      </div>
+
       <div class="log-box" id="blog-${cfg.id}"><div style="color:var(--text-dim)">Warte auf Marktdaten...</div></div>
     </div>`;
   });
@@ -1181,11 +1226,33 @@ function getTrend(priceH, asset){
 }
 
 // ══════════════════════════════════════
-//  BOT LOGIC — Trendfilter & kein Trading bis Trend bekannt
+//  BOT LOGIC — Trendfilter & Turbo Modus
 // ══════════════════════════════════════
 function runBotLogic(id,price,rsi){
   const b=state.bots[id];
-  const OS=b.rsiOS, OB=b.rsiOB;
+
+  // TURBO: Auto-Stop bei Max-Verlust
+  if(b.turbo&&b.turboMaxLoss&&b.pnl<0){
+    const loss=Math.abs(b.pnl);
+    const maxLossAmt=state.startBalance*b.turboMaxLoss;
+    if(loss>=maxLossAmt){
+      b.running=false;
+      const btn=document.getElementById(`bbtn-${id}`);
+      if(btn){btn.classList.remove('running');btn.textContent='▶ BOT STARTEN';}
+      document.getElementById(`bc-${id}`)?.classList.remove('running');
+      setStatus(id,'idle');
+      botLog(id,`🛑 TURBO AUTO-STOP: -$${loss.toFixed(2)} Limit erreicht`,'var(--loss)');
+      if(b.inTrade)closeBotTrade(id,price,'AUTO-STOP');
+      save(); return;
+    }
+  }
+
+  // Turbo-Modus: RSI-Grenzen automatisch enger für mehr Signale
+  const OS = b.turbo ? Math.min(b.rsiOS+10, 48) : b.rsiOS;
+  const OB = b.turbo ? Math.max(b.rsiOB-10, 52) : b.rsiOB;
+  // Turbo: kleinerer TP damit Trades schneller schließen
+  const turboTP = b.turbo ? 0.004 : null;
+
   const trend=getTrend(b.priceH, b.asset);
 
   if(!b.inTrade){
@@ -1238,8 +1305,8 @@ function runBotLogic(id,price,rsi){
     // Stop-Loss
     if(diff<=-b.stopLoss){ closeBotTrade(id,price,'STOP LOSS'); return; }
 
-    // Take-Profit
-    const tp=id===1?0.015:id===2?0.010:0.008;
+    // Take-Profit — Turbo hat kleineren TP für schnellere Trades
+    const tp = turboTP ?? (id===1?0.015:id===2?0.010:0.008);
     const exitRsi=b.direction==='long'?rsi>OB:rsi<OS;
     // Trendwechsel gegen Position → sofort raus
     const currentTrend=getTrend(b.priceH,b.asset);
@@ -1372,6 +1439,31 @@ window.selectBotAsset=(id,asset,el)=>{
 window.setBotRisk=(id,v)=>{state.bots[id].risk=parseFloat(v);save();};
 window.setBotSL=(id,v)=>{state.bots[id].stopLoss=parseFloat(v);save();};
 window.setBotCompound=(id,v)=>{state.bots[id].compound=v;save();};
+
+window.setTurbo=(id,on)=>{
+  const b=state.bots[id];
+  b.turbo=on;
+  // Turbo-Panel visuell updaten
+  const panel=document.getElementById(`turbo-panel-${id}`);
+  const info=document.getElementById(`turbo-info-${id}`);
+  const mlRow=document.getElementById(`turbo-maxloss-row-${id}`);
+  const title=panel?.querySelector('.turbo-title');
+  if(panel) panel.classList.toggle('on',on);
+  if(info) info.textContent=on
+    ?'⚠ Schnelle Trades · RSI-Grenzen werden automatisch enger gesetzt · Höheres Risiko!'
+    :'Mehr Trades durch engere RSI-Grenzen. Nur für den Simulator empfohlen.';
+  if(mlRow) mlRow.style.cssText=on?'':'opacity:.4;pointer-events:none';
+  if(title) title.innerHTML=`⚡ TURBO MODUS${on?'<span class="turbo-badge">AN</span>':''}`;
+  // Bot-Card styling
+  document.getElementById(`bc-${id}`)?.classList.toggle('turbo-on',on);
+  if(on) botLog(id,'⚡ TURBO MODUS aktiviert — schnelle Trades!','var(--warn)');
+  else   botLog(id,'TURBO MODUS deaktiviert','var(--text-dim)');
+  save();
+};
+
+window.setTurboMaxLoss=(id,v)=>{
+  state.bots[id].turboMaxLoss=parseFloat(v);save();
+};
 
 // ══════════════════════════════════════
 //  MANUAL TRADING
