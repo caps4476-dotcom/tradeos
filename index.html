@@ -453,9 +453,9 @@ const CATS = {
 };
 
 const BOT_META=[
-  {id:1,name:'BOT ALPHA',color:'#00d4ff'},
-  {id:2,name:'BOT BETA', color:'#a855f7'},
-  {id:3,name:'BOT GAMMA',color:'#ff9900'},
+  {id:1,name:'BOT ALPHA',color:'#00d4ff',strat:'Konservativ'},
+  {id:2,name:'BOT BETA', color:'#a855f7',strat:'Mittel'},
+  {id:3,name:'BOT GAMMA',color:'#ff9900',strat:'Aggressiv'},
 ];
 const CANDLE_TICKS=10;
 const LOCAL_KEY='TRADEOS_V3';
@@ -685,8 +685,9 @@ function buildBots(){
     con.innerHTML+=`
     <div class="bot-card${b.running?' running':''}" id="bc-${cfg.id}">
       <div class="bot-header">
-        <div style="display:flex;align-items:center;gap:8px">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
           <div class="bot-name" style="color:${cfg.color}">${cfg.name}</div>
+          <div style="font-size:8px;color:var(--text-dim);font-family:var(--mono);letter-spacing:1px">${cfg.strat}</div>
           <div class="status-chip status-idle" id="status-${cfg.id}">● IDLE</div>
         </div>
         <div class="bot-pnl${b.pnl>=0?' pnl-pos':' pnl-neg'}" id="bpnl-${cfg.id}">${b.pnl>=0?'+':''}$${b.pnl.toFixed(2)}</div>
@@ -1256,8 +1257,9 @@ function runBotLogic(id,price,rsi){
   const trend=getTrend(b.priceH, b.asset);
 
   if(!b.inTrade){
-    // Kein Trading bis Trend bekannt
-    if(trend===null){
+    // Bot 1 und 2 warten auf Trend-Analyse
+    // Bot 3 handelt sofort ab RSI-Daten verfügbar
+    if(trend===null && id!==3){
       const src=ASSETS[b.asset]?.live?(klineCache[b.asset]||[]):b.priceH;
       const rem=Math.max(0,20-src.length);
       if(rem>0&&b.priceH.length%5===0)
@@ -1268,22 +1270,28 @@ function runBotLogic(id,price,rsi){
     let goLong=false, goShort=false;
 
     if(id===1){
-      // BOT ALPHA: RSI + Trend
+      // BOT ALPHA: Konservativ — RSI + Trend-Bestätigung
+      // Handelt nur mit dem Trend — weniger Trades aber höhere Trefferquote
       goLong  = rsi<OS && (trend==='bull'||trend==='neutral');
-      goShort = rsi>OB && trend==='bear'; // Short NUR bei klarem Abwärtstrend
+      goShort = rsi>OB && trend==='bear';
+
     } else if(id===2){
-      // BOT BETA: RSI-Momentum + Trend
+      // BOT BETA: Mittel — RSI-Momentum ohne Trendfilter
+      // Handelt in beide Richtungen wenn RSI Momentum zeigt
       if(b.rsiH.length>=4){
         const rsiNow=b.rsiH.at(-1);
         const rsiPrev=b.rsiH.at(-3);
         const rsiTrend=rsiNow-rsiPrev;
-        goLong  = rsiNow<(OS+15) && rsiTrend>2 && (trend==='bull'||trend==='neutral');
-        goShort = rsiNow>(OB-15) && rsiTrend<-2 && trend==='bear';
+        goLong  = rsiNow<(OS+12) && rsiTrend>1.5;
+        goShort = rsiNow>(OB-12) && rsiTrend<-1.5;
       }
+
     } else {
-      // BOT GAMMA: RSI Scalper + Trend
-      goLong  = rsi<OS && (trend==='bull'||trend==='neutral');
-      goShort = rsi>OB && trend==='bear';
+      // BOT GAMMA: Aggressiv — reagiert auf JEDES RSI-Signal
+      // Kein Trendfilter — handelt bei jeder Über- oder Unterschreitung
+      // Sowohl steigende als auch fallende Kurse werden gehandelt
+      goLong  = rsi<OS;   // jedes überverkauft-Signal → Long
+      goShort = rsi>OB;   // jedes überkauft-Signal → Short
     }
 
     if(goLong){
@@ -1305,10 +1313,14 @@ function runBotLogic(id,price,rsi){
     // Stop-Loss
     if(diff<=-b.stopLoss){ closeBotTrade(id,price,'STOP LOSS'); return; }
 
-    // Take-Profit — Turbo hat kleineren TP für schnellere Trades
-    const tp = turboTP ?? (id===1?0.015:id===2?0.010:0.008);
+    // Take-Profit:
+    // WICHTIG: TP muss IMMER größer als SL sein (positives Risk/Reward)
+    // Standard: TP = SL × 1.5 (für jeden $1 Risiko → $1.50 Gewinnziel)
+    // Turbo: TP = SL × 1.2 (etwas kleiner aber immer noch positiv)
+    const tpMultiplier = b.turbo ? 1.2 : 1.5;
+    const tp = turboTP ?? (b.stopLoss * tpMultiplier);
+
     const exitRsi=b.direction==='long'?rsi>OB:rsi<OS;
-    // Trendwechsel gegen Position → sofort raus
     const currentTrend=getTrend(b.priceH,b.asset);
     const exitTrend=currentTrend!==null&&(
       (b.direction==='long'  && currentTrend==='bear') ||
@@ -1316,7 +1328,7 @@ function runBotLogic(id,price,rsi){
     );
 
     if(diff>=tp||exitRsi||exitTrend){
-      const why=diff>=tp?'TP':exitRsi?'RSI':'TREND-WECHSEL';
+      const why=diff>=tp?`TP+${(diff*100).toFixed(2)}%`:exitRsi?'RSI-EXIT':'TREND-EXIT';
       closeBotTrade(id,price,why);
     }
   }
@@ -1413,8 +1425,8 @@ window.toggleBot=id=>{
   btn.classList.toggle('running',b.running);
   btn.textContent=b.running?'⏹ BOT STOPPEN':'▶ BOT STARTEN';
   if(b.running){
-    const strat=id===1?'RSI+EMA':id===2?'RSI-Trend':'RSI-Scalper';
-    botLog(id,`▶ Bot gestartet | Strategie: ${strat} | OS:${b.rsiOS} OB:${b.rsiOB}`,'var(--accent)');
+    const strats=['RSI+Trend (konservativ)','RSI-Momentum (mittel)','RSI-Scalper (aggressiv, alle Signale)'];
+    botLog(id,`▶ Gestartet | ${strats[id-1]}`,'var(--accent)');
   } else {
     setStatus(id,'idle');
     botLog(id,'⏹ Bot gestoppt','var(--text-dim)');
