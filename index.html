@@ -332,8 +332,36 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
         <div class="cat-tab" onclick="setManualCat('stocks',this)">📈 AKTIEN</div>
       </div>
       <div class="asset-grid" id="manual-asset-grid"></div>
-      <div class="manual-price-big" id="manual-price-display">$---</div>
-      <div style="text-align:center;font-size:9px;color:var(--text-dim);font-family:var(--mono);margin-bottom:10px" id="manual-asset-note"></div>
+
+      <!-- PREIS + CHANGE -->
+      <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:4px">
+        <div class="manual-price-big" id="manual-price-display" style="margin-bottom:0">$---</div>
+        <div id="manual-price-change" style="font-family:var(--mono);font-size:11px"></div>
+      </div>
+      <div style="text-align:left;font-size:9px;color:var(--text-dim);font-family:var(--mono);margin-bottom:8px" id="manual-asset-note"></div>
+
+      <!-- CANDLESTICK CHART -->
+      <div class="chart-wrap" id="manual-candle-wrap" style="height:100px;margin-bottom:6px;position:relative;overflow:hidden">
+        <div class="chart-label">CANDLESTICK</div>
+        <div class="chart-label-r" id="manual-clbl" style="color:#e8f4ff"></div>
+        <button class="zoom-btn" id="manual-zbtn" onclick="toggleManualZoom()">＋ZOOM</button>
+        <canvas id="manual-ccandle"></canvas>
+      </div>
+
+      <!-- RSI CHART -->
+      <div class="chart-wrap" style="height:52px;margin-bottom:12px;overflow:hidden">
+        <div class="chart-label">RSI</div>
+        <div class="chart-label-r" id="manual-rsilbl" style="color:var(--warn)"></div>
+        <canvas id="manual-crsi"></canvas>
+      </div>
+
+      <!-- RSI INFO ROW -->
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;background:var(--surface);border-radius:8px;padding:7px 10px">
+        <div style="font-family:var(--mono);font-size:9px;color:var(--text-dim)">RSI SIGNALZONE</div>
+        <div style="font-family:var(--mono);font-size:10px" id="manual-rsi-signal">— warte auf Daten</div>
+        <div style="font-family:var(--mono);font-size:9px;color:var(--text-dim)" id="manual-trend-label">Trend: —</div>
+      </div>
+
       <div class="setup-label">INVESTITIONSBETRAG</div>
       <div class="amount-row" id="manual-amt-row">
         <div class="amt-btn sel" onclick="selectAmt(this,5)">5%</div>
@@ -477,6 +505,15 @@ let prices={};
 let prevPrices={};
 let cBuilders={1:{},2:{},3:{}};
 let currentUserId=null,isAnonymous=false,saveTimeout=null;
+
+// Manual chart state
+const manualChart={
+  priceH:[],
+  rsiH:[],
+  candles:[],
+  cBuilder:{},
+  zoomed:false,
+};
 
 // Simulated price state for forex/stocks
 const simState={};
@@ -857,7 +894,75 @@ window.showTab=t=>{
 // ══════════════════════════════════════
 //  ZOOM — FIXED: use element reference directly
 // ══════════════════════════════════════
-window.toggleZoom=id=>{
+window.toggleManualZoom=()=>{
+  manualChart.zoomed=!manualChart.zoomed;
+  const wrap=document.getElementById('manual-candle-wrap');
+  const btn=document.getElementById('manual-zbtn');
+  if(wrap) wrap.style.height=manualChart.zoomed?'170px':'100px';
+  if(btn)  btn.textContent=manualChart.zoomed?'－ZOOM':'＋ZOOM';
+  setTimeout(()=>updateManualCharts(),320);
+};
+
+function updateManualCharts(){
+  const key=state.manual.asset;
+  const price=prices[key];
+  if(!price)return;
+
+  // Preis-History für manuellen Chart aufbauen
+  manualChart.priceH.push(price);
+  if(manualChart.priceH.length>80)manualChart.priceH.shift();
+
+  // Kerzen bauen
+  const cb=manualChart.cBuilder;
+  if(!cb.open){cb.open=price;cb.high=price;cb.low=price;cb.close=price;cb.ticks=1;}
+  else{cb.high=Math.max(cb.high,price);cb.low=Math.min(cb.low,price);cb.close=price;cb.ticks++;}
+  if(cb.ticks>=CANDLE_TICKS){
+    manualChart.candles.push({o:cb.open,h:cb.high,l:cb.low,c:cb.close});
+    if(manualChart.candles.length>40)manualChart.candles.shift();
+    manualChart.cBuilder={};
+  }
+
+  // Candlestick zeichnen
+  const fakeBot={priceH:manualChart.priceH,inTrade:state.manual.inTrade,entry:state.manual.entry,direction:'long'};
+  drawCandlestick('manual-m',manualChart.candles,price,fakeBot);
+
+  // RSI aus Kerzendaten
+  const rsiSrc=ASSETS[key]?.live?(klineCache[key]||[]):manualChart.priceH;
+  if(rsiSrc.length>=15){
+    const rsi=calcRSI(rsiSrc);
+    if(!isNaN(rsi)&&rsi>=2&&rsi<=98){
+      manualChart.rsiH.push(rsi);
+      if(manualChart.rsiH.length>80)manualChart.rsiH.shift();
+      // RSI Chart zeichnen (OS/OB aus manuellem Stop-Loss abgeleitet)
+      drawRSI('manual-m',manualChart.rsiH,rsi,30,70);
+
+      // RSI Signal anzeigen
+      const sigEl=document.getElementById('manual-rsi-signal');
+      const trendEl=document.getElementById('manual-trend-label');
+      if(sigEl){
+        if(rsi<30){sigEl.textContent=`RSI ${rsi.toFixed(0)} — 🟢 ÜBERVERKAUFT (Kaufsignal)`;sigEl.style.color='var(--win)';}
+        else if(rsi>70){sigEl.textContent=`RSI ${rsi.toFixed(0)} — 🔴 ÜBERKAUFT (Verkaufssignal)`;sigEl.style.color='var(--loss)';}
+        else{sigEl.textContent=`RSI ${rsi.toFixed(0)} — neutral`;sigEl.style.color='var(--text-dim)';}
+      }
+      // Trend anzeigen
+      const trend=getTrend(manualChart.priceH,key);
+      if(trendEl&&trend){
+        const tMap={bull:'↑ bullisch',bear:'↓ bärisch',neutral:'→ seitwärts'};
+        const cMap={bull:'var(--win)',bear:'var(--loss)',neutral:'var(--text-dim)'};
+        trendEl.textContent='Trend: '+(tMap[trend]||'—');
+        trendEl.style.color=cMap[trend]||'var(--text-dim)';
+      }
+    }
+  }
+
+  // Preis-Change anzeigen
+  if(manualChart.priceH.length>=2){
+    const prev=manualChart.priceH.at(-2);
+    const chg=(price-prev)/prev*100;
+    const el=document.getElementById('manual-price-change');
+    if(el){el.textContent=(chg>=0?'▲':'▼')+Math.abs(chg).toFixed(3)+'%';el.style.color=chg>=0?'var(--win)':'var(--loss)';}
+  }
+}
   const wrap=document.getElementById('ccwrap-'+id);
   const btn=document.getElementById('zbtn-'+id);
   if(!wrap||!btn)return;
@@ -1029,12 +1134,13 @@ function processPrices(){
     }
   }
   updateManualTradePnL();
+  updateManualCharts();
 }
 
 // ══════════════════════════════════════
 //  CANDLESTICK CHART
 // ══════════════════════════════════════
-function drawCandlestick(botId,candles,lastPrice,botState){
+function drawCandlestick(botId,candles,lastPrice,botState,partialCandle){
   const canvas=document.getElementById(`ccandle-${botId}`);
   if(!resizeCanvas(canvas))return;
   const dpr=window.devicePixelRatio||1;
@@ -1042,13 +1148,15 @@ function drawCandlestick(botId,candles,lastPrice,botState){
   const ctx=canvas.getContext('2d');
   ctx.clearRect(0,0,W,H);
 
-  const pb=cBuilders[botId];
+  // partialCandle kann direkt übergeben werden (für manuellen Chart)
+  // oder aus cBuilders geholt werden (für Bot-Charts)
+  const pb = partialCandle !== undefined ? partialCandle : (cBuilders[botId]||{});
   const disp=[...candles];
   if(pb&&pb.open)disp.push({o:pb.open,h:pb.high,l:pb.low,c:pb.close,partial:true});
 
   if(disp.length<2){
     if(botState.priceH.length>=2)drawLine(ctx,botState.priceH,W,H,'#00d4ff');
-    setLbl(`clbl-${botId}`,fmtPrice(lastPrice,botState.asset),'#e8f4ff');
+    setLbl(botId==='manual-m'?'manual-clbl':`clbl-${botId}`,fmtPrice(lastPrice,botState.asset||state.manual.asset),'#e8f4ff');
     return;
   }
 
@@ -1087,7 +1195,7 @@ function drawCandlestick(botId,candles,lastPrice,botState){
     ctx.fillText(botState.direction==='short'?'SHORT ENTRY':'LONG ENTRY',4*dpr,ey-3*dpr);
   }
 
-  setLbl(`clbl-${botId}`,fmtPrice(lastPrice,botState.asset),'#e8f4ff');
+  setLbl(botId==='manual-m'?'manual-clbl':`clbl-${botId}`,fmtPrice(lastPrice,botState.asset||state.manual.asset),'#e8f4ff');
 }
 
 function drawLine(ctx,data,W,H,color){
@@ -1133,7 +1241,7 @@ function drawRSI(botId,rsiH,cur,osLvl,obLvl){
   ctx.fillStyle='rgba(0,227,150,0.7)';ctx.fillText(osLvl,W-22*dpr,py(osLvl)+10*dpr);
 
   const rc=cur<osLvl?'var(--win)':cur>obLvl?'var(--loss)':'#fbbf24';
-  setLbl(`rsilbl-${botId}`,'RSI '+cur.toFixed(0),rc);
+  setLbl(botId==='manual-m'?'manual-rsilbl':`rsilbl-${botId}`,'RSI '+cur.toFixed(0),rc);
 }
 
 function setLbl(id,txt,color){const el=document.getElementById(id);if(el){el.textContent=txt;el.style.color=color;}}
@@ -1482,8 +1590,14 @@ window.setTurboMaxLoss=(id,v)=>{
 // ══════════════════════════════════════
 window.selectManualAsset=(key,el)=>{
   state.manual.asset=key;
+  // Chart-Daten für neues Asset zurücksetzen
+  manualChart.priceH=[];
+  manualChart.rsiH=[];
+  manualChart.candles=[];
+  manualChart.cBuilder={};
   document.querySelectorAll('.asset-pill').forEach(e=>e.classList.remove('sel'));
-  el.classList.add('sel');updateManualPrice();updateManualStake();
+  el.classList.add('sel');
+  updateManualPrice();updateManualStake();
 };
 window.selectAmt=(el,pct)=>{
   state.manual.amtPct=pct;
