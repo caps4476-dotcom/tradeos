@@ -572,7 +572,9 @@ function showLogin(){
 }
 function showApp(){
   document.getElementById('app').classList.remove('hidden');
-  buildBots();buildManualAssets('crypto');updateHeader();renderHistory();
+  buildBots();buildManualAssets(state.manual.cat||'crypto');updateHeader();renderHistory();
+  // Offene manuelle Position nach Laden wiederherstellen
+  restoreManualTradeUI();
   startFeed();
 }
 function showLocalFallback(){
@@ -676,7 +678,8 @@ function mergeState(saved){
   def.totalTrades=saved.totalTrades??0;
   def.tradeHistory=Array.isArray(saved.tradeHistory)?saved.tradeHistory:[];
   if(saved.manual)def.manual=Object.assign(def.manual,saved.manual);
-  def.manual.inTrade=false;def.manual.entry=0;def.manual.amount=0;
+  // Offene manuelle Position BEIBEHALTEN — nicht zurücksetzen!
+  // (Preis wird beim nächsten Tick geholt und PnL neu berechnet)
   for(let i=1;i<=3;i++){
     const sb=saved.bots?.[i];
     if(!sb)continue;
@@ -690,6 +693,22 @@ function mergeState(saved){
     b.priceH=[];b.rsiH=[];b.candles=[];
   }
   return def;
+}
+
+// Stellt die UI einer offenen manuellen Position nach dem Laden wieder her
+function restoreManualTradeUI(){
+  const m=state.manual;
+  if(!m.inTrade||!m.entry)return;
+  document.getElementById('btn-buy-manual').disabled=true;
+  document.getElementById('btn-sell-manual').disabled=false;
+  const box=document.getElementById('manual-open-trade');
+  if(box){
+    box.classList.remove('none');
+    box.style.borderColor='var(--accent2)';
+    const asset=m.asset;
+    const info=document.getElementById('manual-trade-info');
+    if(info)info.textContent=`${asset} LONG @ ${fmtPrice(m.entry,asset)} · $${m.amount.toFixed(2)} · SL ${(m.stopLoss*100).toFixed(0)}% · TP ${(m.takeProfit*100).toFixed(0)}%`;
+  }
 }
 
 // ══════════════════════════════════
@@ -813,12 +832,17 @@ function buildBots(){
 }
 
 function buildManualAssets(cat){
+  manualCat=cat;
   const keys=CATS[cat]||CATS.crypto;
   if(!keys.includes(state.manual.asset))state.manual.asset=keys[0];
   const el=document.getElementById('manual-asset-grid');
   if(el)el.innerHTML=keys.map(k=>
     `<div class="asset-pill${state.manual.asset===k?' sel':''}" onclick="selectManualAsset('${k}',this)">${ASSETS[k].label.split('/')[0]||k}</div>`
   ).join('');
+  // Kategorie-Tab korrekt markieren
+  document.querySelectorAll('.cat-tab').forEach((t,i)=>{
+    t.classList.toggle('active',['crypto','forex','stocks'][i]===cat);
+  });
   const note=document.getElementById('manual-asset-note');
   if(note){
     note.textContent=cat==='forex'?'💱 Simulation (kein Live-Feed)':
@@ -840,6 +864,7 @@ window.showTab=t=>{
 let manualCat='crypto';
 window.setManualCat=(cat,el)=>{
   manualCat=cat;
+  state.manual.cat=cat; // speichern damit nach Reload gleiche Kategorie aktiv ist
   document.querySelectorAll('.cat-tab').forEach(t=>t.classList.remove('active'));
   el.classList.add('active');
   buildManualAssets(cat);
