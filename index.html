@@ -728,6 +728,8 @@ function buildBots(){
           <div class="dir-status" id="dir-short-act-${cfg.id}">${b.inTrade&&b.direction==='short'?'⬤ AKTIV':'○ wartet'}</div>
         </div>
       </div>
+      <!-- LIVE TRADE INFO -->
+      <div id="dir-trade-info-${cfg.id}" style="display:none;background:rgba(0,212,255,.06);border:1px solid rgba(0,212,255,.2);border-radius:8px;padding:8px 10px;margin-bottom:8px"></div>
       <div class="asset-scroll">${aOpts}</div>
       <div class="price-row">
         <div class="price-big" id="bprice-${cfg.id}">$---</div>
@@ -936,12 +938,49 @@ function updateDirPanel(id){
   const la=document.getElementById('dir-long-act-'+id);
   const sc=document.getElementById('dir-short-'+id);
   const sa=document.getElementById('dir-short-act-'+id);
+  const tradeInfo=document.getElementById('dir-trade-info-'+id);
   if(!lc)return;
+
   lc.textContent=(b.longCount||0)+' Trades';
   sc.textContent=(b.shortCount||0)+' Trades';
-  if(b.inTrade&&b.direction==='long'){la.textContent='⬤ AKTIV';la.style.color='var(--win)';sa.textContent='○ wartet';sa.style.color='';}
-  else if(b.inTrade&&b.direction==='short'){sa.textContent='⬤ AKTIV';sa.style.color='#a855f7';la.textContent='○ wartet';la.style.color='';}
-  else{la.textContent=b.running?'○ wartet':'○ gestoppt';la.style.color='';sa.textContent=b.running?'○ wartet':'○ gestoppt';sa.style.color='';}
+
+  if(b.inTrade){
+    const price=prices[b.asset]||0;
+    const raw=b.entry>0?(price-b.entry)/b.entry:0;
+    const diff=b.direction==='short'?-raw:raw;
+    const invested=(b.compound?state.balance:state.startBalance)*b.risk;
+    const pnl=invested*diff;
+    const pnlColor=pnl>=0?'var(--win)':'var(--loss)';
+    const pnlSign=pnl>=0?'+':'';
+
+    if(b.direction==='long'){
+      la.textContent='⬤ AKTIV';la.style.color='var(--win)';
+      sa.textContent='○ wartet';sa.style.color='';
+    } else {
+      sa.textContent='⬤ AKTIV';sa.style.color='#a855f7';
+      la.textContent='○ wartet';la.style.color='';
+    }
+
+    // Trade-Info Box befüllen
+    if(tradeInfo){
+      tradeInfo.style.display='block';
+      tradeInfo.innerHTML=`
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;font-family:var(--mono);font-size:9px">
+          <div style="color:var(--text-dim)">Einstieg</div>
+          <div style="color:#e8f4ff;text-align:right">${fmtPrice(b.entry,b.asset)}</div>
+          <div style="color:var(--text-dim)">Aktuell</div>
+          <div style="color:#e8f4ff;text-align:right">${fmtPrice(price,b.asset)}</div>
+          <div style="color:var(--text-dim)">Investiert</div>
+          <div style="color:#e8f4ff;text-align:right">$${invested.toFixed(2)}</div>
+          <div style="color:var(--text-dim)">PnL live</div>
+          <div style="color:${pnlColor};text-align:right;font-weight:bold">${pnlSign}$${pnl.toFixed(2)} (${(diff*100).toFixed(2)}%)</div>
+        </div>`;
+    }
+  } else {
+    la.textContent=b.running?'○ wartet':'○ gestoppt';la.style.color='';
+    sa.textContent=b.running?'○ wartet':'○ gestoppt';sa.style.color='';
+    if(tradeInfo)tradeInfo.style.display='none';
+  }
 }
 function botLog(id,msg,color){
   const el=document.getElementById('blog-'+id);if(!el)return;
@@ -1031,6 +1070,8 @@ function processPrices(){
       const raw=(price-b.entry)/b.entry;const diff=b.direction==='short'?-raw:raw;
       if(diff<=-b.stopLoss)closeTrade(i,price,'STOP LOSS');
     }
+    // Live PnL im Dir-Panel aktualisieren
+    if(b.inTrade)updateDirPanel(i);
   }
   updateManualPnL();
 }
