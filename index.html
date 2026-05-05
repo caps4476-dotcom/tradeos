@@ -443,7 +443,7 @@ async function initFirebase(){
     const {initializeApp}=await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js");
     const {getAuth,createUserWithEmailAndPassword,signInWithEmailAndPassword,
            signInAnonymously,onAuthStateChanged,signOut}=await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js");
-    const {getFirestore,doc,setDoc,getDoc}=await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js");
+    const {getFirestore,doc,setDoc,getDoc,onSnapshot}=await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js");
 
     const app=initializeApp(firebaseConfig);
     auth=getAuth(app);
@@ -452,7 +452,7 @@ async function initFirebase(){
 
     // Firebase Funktionen global verfügbar machen
     window._fb={createUserWithEmailAndPassword,signInWithEmailAndPassword,
-                signInAnonymously,onAuthStateChanged,signOut,doc,setDoc,getDoc};
+                signInAnonymously,onAuthStateChanged,signOut,doc,setDoc,getDoc,onSnapshot};
 
     bootMsg('AUTHENTIFIZIERUNG...');
 
@@ -570,12 +570,65 @@ function hideBoot(){
 function showLogin(){
   document.getElementById('login-screen').classList.remove('hidden');
 }
+let realtimeUnsub=null; // Firestore Realtime Listener handle
+
+// Startet den Realtime-Sync — alle Geräte bekommen sofort Updates
+function startRealtimeSync(){
+  if(!FIREBASE_OK||!currentUserId||isAnon)return;
+  // Vorherigen Listener abmelden
+  if(realtimeUnsub)realtimeUnsub();
+  let firstSnapshot=true;
+  realtimeUnsub=window._fb.onSnapshot(
+    window._fb.doc(db,'users',currentUserId),
+    snap=>{
+      if(!snap.exists())return;
+      // Ersten Snapshot ignorieren — der ist der initiale Ladevorgang
+      if(firstSnapshot){firstSnapshot=false;return;}
+      const remote=snap.data();
+      if(!remote?.balance)return;
+      // Nur aktualisieren wenn Daten wirklich neuer sind (andere Änderung)
+      // Einfache Prüfung: Balance oder TradeCount hat sich geändert
+      const balanceChanged=Math.abs((remote.balance||0)-state.balance)>0.001;
+      const tradeCountChanged=(remote.totalTrades||0)!==(state.totalTrades||0);
+      const manualChanged=(remote.manual?.inTrade!==state.manual?.inTrade)||
+                          (remote.manual?.entry!==state.manual?.entry);
+      if(balanceChanged||tradeCountChanged||manualChanged){
+        console.log('TradeOS: Remote update empfangen');
+        // Chart-Daten und Bot-Laufstatus nicht überschreiben
+        const prevRunning={};
+        for(let i=1;i<=3;i++)prevRunning[i]=state.bots[i].running;
+        state=mergeState(remote);
+        // Laufende Bots weiterlaufen lassen
+        for(let i=1;i<=3;i++){
+          if(prevRunning[i]&&!state.bots[i].running)state.bots[i].running=true;
+        }
+        // UI aktualisieren ohne neu zu bauen
+        updateHeader();renderHistory();restoreManualTradeUI();
+        showSave('🔄 SYNC');
+      }
+    },
+    err=>console.warn('Realtime sync error:',err)
+  );
+}
+
 function showApp(){
   document.getElementById('app').classList.remove('hidden');
-  buildBots();buildManualAssets(state.manual.cat||'crypto');updateHeader();renderHistory();
-  // Offene manuelle Position nach Laden wiederherstellen
+  buildBots();
+  // Laufende Bots optisch wiederherstellen
+  for(let i=1;i<=3;i++){
+    const b=state.bots[i];
+    if(b.running){
+      document.getElementById('bc-'+i)?.classList.add('running');
+      const btn=document.getElementById('bbtn-'+i);
+      if(btn){btn.classList.add('running');btn.textContent='⏹ BOT STOPPEN';}
+      if(b.inTrade)setStatus(i,b.direction);
+      updateDirPanel(i);
+    }
+  }
+  buildManualAssets(state.manual.cat||'crypto');updateHeader();renderHistory();
   restoreManualTradeUI();
   startFeed();
+  setTimeout(startRealtimeSync,2000);
 }
 function showLocalFallback(){
   isAnon=true;
@@ -678,18 +731,28 @@ function mergeState(saved){
   def.totalTrades=saved.totalTrades??0;
   def.tradeHistory=Array.isArray(saved.tradeHistory)?saved.tradeHistory:[];
   if(saved.manual)def.manual=Object.assign(def.manual,saved.manual);
-  // Offene manuelle Position BEIBEHALTEN — nicht zurücksetzen!
-  // (Preis wird beim nächsten Tick geholt und PnL neu berechnet)
   for(let i=1;i<=3;i++){
     const sb=saved.bots?.[i];
     if(!sb)continue;
     const b=def.bots[i];
-    b.running=false;b.asset=sb.asset??b.asset;b.risk=sb.risk??b.risk;
-    b.stopLoss=sb.stopLoss??b.stopLoss;b.compound=sb.compound??true;
-    b.rsiOS=sb.rsiOS??b.rsiOS;b.rsiOB=sb.rsiOB??b.rsiOB;
-    b.pnl=sb.pnl??0;b.longCount=sb.longCount??0;b.shortCount=sb.shortCount??0;
-    b.turbo=sb.turbo??false;b.turboMaxLoss=sb.turboMaxLoss??0.10;
-    b.inTrade=false;b.entry=0;b.direction='long';b.status='idle';
+    // Bot-Status BEIBEHALTEN — running bleibt wie gespeichert
+    b.running   = sb.running   ?? false;
+    b.asset     = sb.asset     ?? b.asset;
+    b.risk      = sb.risk      ?? b.risk;
+    b.stopLoss  = sb.stopLoss  ?? b.stopLoss;
+    b.compound  = sb.compound  ?? true;
+    b.rsiOS     = sb.rsiOS     ?? b.rsiOS;
+    b.rsiOB     = sb.rsiOB     ?? b.rsiOB;
+    b.pnl       = sb.pnl       ?? 0;
+    b.longCount = sb.longCount ?? 0;
+    b.shortCount= sb.shortCount?? 0;
+    b.turbo     = sb.turbo     ?? false;
+    b.turboMaxLoss = sb.turboMaxLoss ?? 0.10;
+    // Offene Bot-Positionen beibehalten
+    b.inTrade   = sb.inTrade   ?? false;
+    b.entry     = sb.entry     ?? 0;
+    b.direction = sb.direction ?? 'long';
+    b.status    = 'idle'; // Status wird beim Start neu gesetzt
     b.priceH=[];b.rsiH=[];b.candles=[];
   }
   return def;
