@@ -134,7 +134,8 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
 .chart-lbl-r{position:absolute;top:4px;right:6px;font-size:9px;font-family:var(--mono);z-index:2;pointer-events:none;font-weight:bold}
 .candle-chart{height:70px;transition:height .3s;overflow:hidden}
 .candle-chart.zoomed{height:160px}
-.rsi-chart{height:52px;overflow:hidden}
+.rsi-chart{height:52px;min-height:52px;overflow:hidden}
+.rsi-chart canvas{width:100%!important;height:52px!important;display:block}
 .zoom-btn{position:absolute;bottom:3px;right:4px;z-index:5;background:rgba(5,11,20,.9);border:1px solid var(--border);color:var(--text-dim);font-size:9px;padding:2px 6px;border-radius:4px;cursor:pointer;font-family:var(--mono)}
 .zoom-btn:hover{color:var(--accent);border-color:var(--accent)}
 
@@ -1207,9 +1208,13 @@ function processPrices(){
       if(!isNaN(rsi)&&rsi>=2&&rsi<=98){
         b.rsiH.push(rsi);if(b.rsiH.length>80)b.rsiH.shift();
         drawRSI(i,b.rsiH,rsi,b.rsiOS,b.rsiOB);
-        // Score IMMER aktualisieren — egal ob Bot läuft oder nicht
+        // Score aktualisieren
         const sd=calcScore(b.priceH,rsi,b.asset);
         updateScoreUI(i,sd);
+        // Verzögerter Redraw beim ersten Datenpunkt
+        if(b.rsiH.length===2){
+          setTimeout(()=>drawRSI(i,b.rsiH,b.rsiH.at(-1),b.rsiOS,b.rsiOB),300);
+        }
         if(b.running)runBotLogic(i,price,rsi,sd);
       }
     } else if(b.running&&b.priceH.length>0&&b.priceH.length%5===0){
@@ -1232,7 +1237,10 @@ function resizeCanvas(canvas){
   if(!canvas)return false;
   const dpr=window.devicePixelRatio||1;
   const rect=canvas.getBoundingClientRect();
-  const W=Math.round(rect.width*dpr),H=Math.round(rect.height*dpr);
+  // Fallback auf offsetWidth/Height wenn getBoundingClientRect 0 zurückgibt
+  const cw=rect.width||canvas.offsetWidth||canvas.parentElement?.offsetWidth||0;
+  const ch=rect.height||canvas.offsetHeight||canvas.parentElement?.offsetHeight||0;
+  const W=Math.round(cw*dpr),H=Math.round(ch*dpr);
   if(W<2||H<2)return false;
   if(canvas.width!==W||canvas.height!==H){canvas.width=W;canvas.height=H;}
   return true;
