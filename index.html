@@ -236,6 +236,26 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
   .price-big{font-size:1.5em!important}
   .tab{font-size:10px!important;padding:8px!important}
 }
+/* ── SCORE & EXPLAIN BOX ── */
+.score-box{background:var(--surface);border-radius:10px;padding:10px 12px;margin-bottom:8px}
+.score-title{font-family:var(--mono);font-size:9px;color:var(--text-dim);letter-spacing:1px;margin-bottom:8px}
+.score-bar-wrap{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.score-bar-bg{flex:1;height:8px;background:var(--border);border-radius:4px;overflow:hidden;position:relative}
+.score-bar-fill{height:100%;border-radius:4px;transition:width .4s ease,background .4s ease;position:absolute;top:0}
+.score-bar-center{position:absolute;top:0;left:50%;width:1px;height:100%;background:rgba(255,255,255,.2)}
+.score-label{font-family:var(--mono);font-size:9px;width:62px;flex-shrink:0}
+.score-val{font-family:var(--mono);font-size:11px;font-weight:bold;width:24px;text-align:right;flex-shrink:0}
+.score-total{display:flex;align-items:center;justify-content:space-between;margin-top:8px;padding-top:8px;border-top:1px solid var(--border)}
+.score-total-label{font-family:var(--mono);font-size:9px;color:var(--text-dim)}
+.score-total-val{font-family:var(--mono);font-size:13px;font-weight:bold}
+.score-signal{font-family:var(--mono);font-size:9px;padding:3px 8px;border-radius:4px;letter-spacing:1px}
+.explain-box{border-radius:10px;padding:10px 12px;margin-bottom:8px;font-family:var(--mono);font-size:9px;line-height:1.6;display:none}
+.explain-box.show{display:block}
+.explain-title{font-size:10px;font-weight:bold;margin-bottom:6px;letter-spacing:1px}
+.explain-row{display:flex;gap:6px;margin-bottom:4px;align-items:flex-start}
+.explain-icon{width:14px;flex-shrink:0}
+.explain-text{color:var(--text-dim);line-height:1.5}
+.explain-text b{color:var(--text)}
 </style>
 </head>
 <body>
@@ -890,6 +910,44 @@ function buildBots(){
         </div>
       </div>
       <div class="log-box" id="blog-${cfg.id}"><div style="color:var(--text-dim)">Warte auf Marktdaten...</div></div>
+
+      <!-- SCORE SYSTEM -->
+      <div class="score-box">
+        <div class="score-title">▸ MARKT-ANALYSE SCORE</div>
+        <div class="score-bar-wrap">
+          <div class="score-label" style="color:var(--warn)">RSI</div>
+          <div class="score-bar-bg" id="sb-rsi-${cfg.id}"><div style="position:absolute;top:0;left:50%;width:1px;height:100%;background:rgba(255,255,255,.25)"></div></div>
+          <div class="score-val" id="sv-rsi-${cfg.id}" style="color:var(--text-dim)">0</div>
+        </div>
+        <div class="score-bar-wrap">
+          <div class="score-label" style="color:var(--accent)">MACD</div>
+          <div class="score-bar-bg" id="sb-macd-${cfg.id}"><div style="position:absolute;top:0;left:50%;width:1px;height:100%;background:rgba(255,255,255,.25)"></div></div>
+          <div class="score-val" id="sv-macd-${cfg.id}" style="color:var(--text-dim)">0</div>
+        </div>
+        <div class="score-bar-wrap">
+          <div class="score-label" style="color:#a855f7">BOLLINGER</div>
+          <div class="score-bar-bg" id="sb-bb-${cfg.id}"><div style="position:absolute;top:0;left:50%;width:1px;height:100%;background:rgba(255,255,255,.25)"></div></div>
+          <div class="score-val" id="sv-bb-${cfg.id}" style="color:var(--text-dim)">0</div>
+        </div>
+        <div class="score-bar-wrap">
+          <div class="score-label" style="color:var(--accent2)">TREND EMA</div>
+          <div class="score-bar-bg" id="sb-trend-${cfg.id}"><div style="position:absolute;top:0;left:50%;width:1px;height:100%;background:rgba(255,255,255,.25)"></div></div>
+          <div class="score-val" id="sv-trend-${cfg.id}" style="color:var(--text-dim)">0</div>
+        </div>
+        <div class="score-total">
+          <div class="score-total-label">GESAMT-SCORE</div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <div class="score-total-val" id="score-total-${cfg.id}" style="color:var(--text-dim)">0 / 8</div>
+            <div class="score-signal" id="score-signal-${cfg.id}" style="background:rgba(74,100,128,.2);color:var(--text-dim)">— NEUTRAL</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ERKLÄR-BOX -->
+      <div class="explain-box" id="explain-${cfg.id}">
+        <div class="explain-title" id="explain-title-${cfg.id}"></div>
+        <div id="explain-body-${cfg.id}"></div>
+      </div>
     </div>`;
   });
 }
@@ -1149,7 +1207,10 @@ function processPrices(){
       if(!isNaN(rsi)&&rsi>=2&&rsi<=98){
         b.rsiH.push(rsi);if(b.rsiH.length>80)b.rsiH.shift();
         drawRSI(i,b.rsiH,rsi,b.rsiOS,b.rsiOB);
-        if(b.running)runBotLogic(i,price,rsi);
+        // Score IMMER aktualisieren — egal ob Bot läuft oder nicht
+        const sd=calcScore(b.priceH,rsi,b.asset);
+        updateScoreUI(i,sd);
+        if(b.running)runBotLogic(i,price,rsi,sd);
       }
     } else if(b.running&&b.priceH.length>0&&b.priceH.length%5===0){
       botLog(i,`⏳ Daten... ${Math.max(0,15-rsiSrc.length)} fehlen`,'var(--text-dim)');
@@ -1312,8 +1373,183 @@ function updateManualCharts(){
 }
 
 // ══════════════════════════════════
-//  RSI CALC — Wilder Smoothing
+//  INDIKATOREN
 // ══════════════════════════════════
+
+// MACD = EMA12 - EMA26 (positiv = bullisch, negativ = bärisch)
+function calcMACD(h){
+  if(h.length<26)return{macd:0,signal:0,hist:0,valid:false};
+  const ema12=calcEMA(h,12);
+  const ema26=calcEMA(h,26);
+  const macd=ema12-ema26;
+  // Signal = EMA9 der MACD-Werte (vereinfacht: aktueller MACD als Näherung)
+  const hist=macd; // Histogramm zeigt Stärke
+  return{macd,hist,valid:true};
+}
+
+// Bollinger Bänder = Mittelwert ± 2 Standardabweichungen
+function calcBollinger(h,period=20){
+  if(h.length<period)return{upper:0,lower:0,mid:0,pct:50,valid:false};
+  const slice=h.slice(-period);
+  const mid=slice.reduce((a,b)=>a+b,0)/period;
+  const variance=slice.reduce((s,v)=>s+(v-mid)**2,0)/period;
+  const std=Math.sqrt(variance);
+  const upper=mid+2*std;
+  const lower=mid-2*std;
+  const price=h.at(-1);
+  // Prozentposition: 0=unteres Band, 100=oberes Band
+  const pct=std>0?((price-lower)/(upper-lower))*100:50;
+  return{upper,lower,mid,pct:Math.min(100,Math.max(0,pct)),valid:true};
+}
+
+// Score berechnen: jeder Indikator gibt Punkte (-2 bis +2)
+// Positiv = Long-Signal, Negativ = Short-Signal
+function calcScore(priceH,rsi,asset){
+  const data=ASSETS[asset]?.live&&(klineCache[asset]||[]).length>=15
+    ?klineCache[asset]:priceH;
+
+  const scores={rsi:0,macd:0,bb:0,trend:0};
+  const details={rsi:'',macd:'',bb:'',trend:''};
+
+  // ── RSI Score ──
+  if(rsi<25){scores.rsi=2;details.rsi='Stark überverkauft — starkes Kaufsignal';}
+  else if(rsi<35){scores.rsi=1;details.rsi='Leicht überverkauft — moderates Kaufsignal';}
+  else if(rsi>75){scores.rsi=-2;details.rsi='Stark überkauft — starkes Verkaufssignal';}
+  else if(rsi>65){scores.rsi=-1;details.rsi='Leicht überkauft — moderates Verkaufssignal';}
+  else{scores.rsi=0;details.rsi='RSI im neutralen Bereich (35-65) — kein Signal';}
+
+  // ── MACD Score ──
+  const macdData=calcMACD(data);
+  if(macdData.valid){
+    if(macdData.hist>0){scores.macd=macdData.hist>0.001*data.at(-1)?2:1;details.macd=scores.macd===2?'MACD positiv & stark — bullisches Momentum':'MACD leicht positiv — schwaches Kaufsignal';}
+    else if(macdData.hist<0){scores.macd=macdData.hist<-0.001*data.at(-1)?-2:-1;details.macd=scores.macd===-2?'MACD negativ & stark — bärisches Momentum':'MACD leicht negativ — schwaches Verkaufssignal';}
+    else{details.macd='MACD nahe Null — kein klares Signal';}
+  } else {details.macd='Zu wenig Daten für MACD (braucht 26 Kerzen)';}
+
+  // ── Bollinger Score ──
+  const bb=calcBollinger(data);
+  if(bb.valid){
+    if(bb.pct<10){scores.bb=2;details.bb=`Preis am unteren Bollinger-Band (${bb.pct.toFixed(0)}%) — stark überverkauft`;}
+    else if(bb.pct<25){scores.bb=1;details.bb=`Preis nahe unterem Band (${bb.pct.toFixed(0)}%) — leicht überverkauft`;}
+    else if(bb.pct>90){scores.bb=-2;details.bb=`Preis am oberen Bollinger-Band (${bb.pct.toFixed(0)}%) — stark überkauft`;}
+    else if(bb.pct>75){scores.bb=-1;details.bb=`Preis nahe oberem Band (${bb.pct.toFixed(0)}%) — leicht überkauft`;}
+    else{scores.bb=0;details.bb=`Preis in der Bollinger-Mitte (${bb.pct.toFixed(0)}%) — neutral`;}
+  } else {details.bb='Zu wenig Daten für Bollinger Bänder (braucht 20 Kerzen)';}
+
+  // ── Trend Score (EMA) ──
+  if(data.length>=20){
+    const ema9=calcEMA(data,9);
+    const ema20=calcEMA(data,20);
+    const ema50=data.length>=50?calcEMA(data,50):null;
+    const price=data.at(-1);
+    if(ema50){
+      if(price>ema9&&ema9>ema20&&ema20>ema50){scores.trend=2;details.trend='Preis > EMA9 > EMA20 > EMA50 — starker Aufwärtstrend';}
+      else if(price<ema9&&ema9<ema20&&ema20<ema50){scores.trend=-2;details.trend='Preis < EMA9 < EMA20 < EMA50 — starker Abwärtstrend';}
+      else if(ema9>ema20){scores.trend=1;details.trend='EMA9 über EMA20 — kurzfristiger Aufwärtstrend';}
+      else if(ema9<ema20){scores.trend=-1;details.trend='EMA9 unter EMA20 — kurzfristiger Abwärtstrend';}
+      else{details.trend='EMAs laufen zusammen — seitwärts / unentschlossen';}
+    } else {
+      if(price>ema20){scores.trend=1;details.trend='Preis über EMA20 — leicht bullisch';}
+      else{scores.trend=-1;details.trend='Preis unter EMA20 — leicht bärisch';}
+    }
+  } else {details.trend='Zu wenig Daten für Trend-Analyse (braucht 20 Kerzen)';}
+
+  const total=scores.rsi+scores.macd+scores.bb+scores.trend;
+  return{scores,details,total};
+}
+
+function updateScoreUI(id,scoreData){
+  const{scores,details,total}=scoreData;
+
+  // Balken: Mitte = 0, links = negativ (rot), rechts = positiv (grün)
+  function renderBar(key){
+    const bar=document.getElementById(`sb-${key}-${id}`);
+    const val=document.getElementById(`sv-${key}-${id}`);
+    const s=scores[key];
+    if(!bar||!val)return;
+
+    // Inneres neu aufbauen: Zentrumslinie + farbiger Balken
+    const pct=Math.abs(s)/2*50; // 0=0%, 1=25%, 2=50% vom Zentrum
+    const color=s>0?'var(--win)':s<0?'var(--loss)':'var(--border)';
+    const left=s<0?(50-pct)+'%':'50%';
+    const width=pct+'%';
+
+    bar.innerHTML=`
+      <div style="position:absolute;top:0;left:${left};width:${width};height:100%;background:${color};border-radius:4px;transition:all .4s"></div>
+      <div style="position:absolute;top:0;left:50%;width:1px;height:100%;background:rgba(255,255,255,.25)"></div>`;
+
+    val.textContent=(s>0?'+':'')+s;
+    val.style.color=s>0?'var(--win)':s<0?'var(--loss)':'var(--text-dim)';
+  }
+
+  ['rsi','macd','bb','trend'].forEach(renderBar);
+
+  const totalEl=document.getElementById('score-total-'+id);
+  const sigEl=document.getElementById('score-signal-'+id);
+
+  if(totalEl){
+    totalEl.textContent=(total>0?'+':'')+total+' / 8';
+    totalEl.style.color=total>=3?'var(--win)':total<=-3?'var(--loss)':'var(--text-dim)';
+  }
+  if(sigEl){
+    if(total>=5){sigEl.textContent='⬆ STARKES LONG';sigEl.style.background='rgba(0,227,150,.2)';sigEl.style.color='var(--win)';}
+    else if(total>=3){sigEl.textContent='▲ LONG';sigEl.style.background='rgba(0,227,150,.1)';sigEl.style.color='var(--win)';}
+    else if(total<=-5){sigEl.textContent='⬇ STARKES SHORT';sigEl.style.background='rgba(255,69,96,.2)';sigEl.style.color='var(--loss)';}
+    else if(total<=-3){sigEl.textContent='▼ SHORT';sigEl.style.background='rgba(255,69,96,.1)';sigEl.style.color='var(--loss)';}
+    else{sigEl.textContent='— NEUTRAL';sigEl.style.background='rgba(74,100,128,.2)';sigEl.style.color='var(--text-dim)';}
+  }
+}
+
+// Erklär-Box nach Trade befüllen
+function showExplain(id,direction,type,scoreData,gain,diff){
+  const box=document.getElementById('explain-'+id);
+  const title=document.getElementById('explain-title-'+id);
+  const body=document.getElementById('explain-body-'+id);
+  if(!box||!title||!body)return;
+
+  const isWin=gain>=0;
+  const dirEmoji=direction==='long'?'📈':'📉';
+  const typeColor=type.includes('STOP')?'var(--loss)':isWin?'var(--win)':'var(--loss)';
+
+  box.classList.add('show');
+  box.style.background=isWin?'rgba(0,227,150,.05)':'rgba(255,69,96,.05)';
+  box.style.border=`1px solid ${isWin?'rgba(0,227,150,.2)':'rgba(255,69,96,.2)'}`;
+
+  title.style.color=typeColor;
+  title.textContent=`${dirEmoji} ${direction.toUpperCase()} ${type}: ${gain>=0?'+':''}$${gain.toFixed(2)} (${(diff*100).toFixed(2)}%)`;
+
+  // Erklärung was passiert ist
+  const {scores,details}=scoreData;
+  const rows=[
+    {icon:'📊',key:'rsi',label:'RSI'},
+    {icon:'📉',key:'macd',label:'MACD'},
+    {icon:'📐',key:'bb',label:'Bollinger'},
+    {icon:'📏',key:'trend',label:'Trend EMA'},
+  ];
+
+  body.innerHTML=rows.map(r=>{
+    const s=scores[r.key];
+    const c=s>0?'var(--win)':s<0?'var(--loss)':'var(--text-dim)';
+    const pts=(s>0?'+':'')+s+' Pkt';
+    return`<div class="explain-row">
+      <div class="explain-icon">${r.icon}</div>
+      <div class="explain-text"><b style="color:${c}">${r.label} (${pts}):</b> ${details[r.key]}</div>
+    </div>`;
+  }).join('')+`
+  <div style="margin-top:6px;padding-top:6px;border-top:1px solid var(--border);color:var(--text-dim)">
+    💡 <b style="color:var(--text)">Was bedeutet das?</b> ${getLearnTip(scoreData.total,direction,type)}
+  </div>`;
+}
+
+// Lern-Tipp je nach Situation
+function getLearnTip(score,direction,type){
+  if(type.includes('STOP'))return'Der Stop-Loss hat dich vor größeren Verlusten geschützt. Das ist gut — ein kleiner kontrollierter Verlust ist besser als ein unkontrollierter großer.';
+  if(score>=5&&direction==='long')return'Fast alle Indikatoren zeigten Kaufsignale gleichzeitig — das ist ein starkes Confluenz-Signal. Je mehr Indikatoren übereinstimmen, desto zuverlässiger ist das Signal.';
+  if(score<=-5&&direction==='short')return'Mehrere Indikatoren zeigten gleichzeitig Verkaufssignale. Short-Trades profitieren von fallenden Kursen — du leihst dir quasi Anteile und verkaufst sie teuer um sie später billiger zurückzukaufen.';
+  if(score>=3)return'Die meisten Indikatoren stimmten überein. Wenn RSI, MACD und Trend alle in dieselbe Richtung zeigen nennt man das "Confluenz" — das erhöht die Trefferwahrscheinlichkeit.';
+  if(score<=-3)return'Mehrere bärische Signale gleichzeitig. "Bärisch" bedeutet fallende Kurse — wie ein Bär der mit der Tatze nach unten schlägt.';
+  return'Bei gemischten Signalen (manche bullisch, manche bärisch) ist der Markt unentschlossen. In solchen Phasen ist Geduld wichtiger als Handeln.';
+}
 function calcRSI(h,period=14){
   if(!h||h.length<period+1)return 50;
   const data=h.length>period*3?h.slice(-period*3):h;
@@ -1348,7 +1584,7 @@ function getTrend(priceH,asset){
 // ══════════════════════════════════
 //  BOT LOGIC
 // ══════════════════════════════════
-function runBotLogic(id,price,rsi){
+function runBotLogic(id,price,rsi,scoreData){
   const b=state.bots[id];
 
   // Turbo: Auto-Stop bei Max-Verlust
@@ -1369,30 +1605,30 @@ function runBotLogic(id,price,rsi){
   const OS=b.turbo?Math.min(b.rsiOS+10,48):b.rsiOS;
   const OB=b.turbo?Math.max(b.rsiOB-10,52):b.rsiOB;
   const trend=getTrend(b.priceH,b.asset);
+  const{total}=scoreData;
 
   if(!b.inTrade){
-    // Bot 1+2: warten auf Trend-Daten; Bot 3: sofort handeln
     if(trend===null&&id!==3){
       const src=ASSETS[b.asset]?.live?(klineCache[b.asset]||[]):b.priceH;
       const rem=Math.max(0,20-src.length);
-      if(rem>0&&b.priceH.length%5===0)botLog(id,`⏳ Trend-Analyse... ${rem} fehlen`,'var(--text-dim)');
+      if(rem>0&&b.priceH.length%5===0)botLog(id,`⏳ Analyse... ${rem} Datenpunkte fehlen`,'var(--text-dim)');
       return;
     }
 
     let goLong=false,goShort=false;
     if(id===1){
-      // Konservativ: mit Trend
-      goLong =rsi<OS&&(trend==='bull'||trend==='neutral');
-      goShort=rsi>OB&&trend==='bear';
+      // ALPHA Konservativ: Score UND Trend müssen stimmen
+      goLong =total>=3&&rsi<OS&&(trend==='bull'||trend==='neutral');
+      goShort=total<=-3&&rsi>OB&&trend==='bear';
     } else if(id===2){
-      // Mittel: RSI-Momentum
+      // BETA Mittel: Score + RSI-Momentum
       if(b.rsiH.length>=4){
         const rt=b.rsiH.at(-1)-b.rsiH.at(-3);
-        goLong =b.rsiH.at(-1)<(OS+12)&&rt>1.5&&(trend==='bull'||trend==='neutral'||trend===null);
-        goShort=b.rsiH.at(-1)>(OB-12)&&rt<-1.5&&(trend==='bear'||trend===null);
+        goLong =total>=2&&b.rsiH.at(-1)<(OS+12)&&rt>1.5;
+        goShort=total<=-2&&b.rsiH.at(-1)>(OB-12)&&rt<-1.5;
       }
     } else {
-      // Aggressiv: alle Signale, kein Trendfilter
+      // GAMMA Aggressiv: alle RSI-Signale, Score als Info
       goLong =rsi<OS;
       goShort=rsi>OB;
     }
@@ -1400,13 +1636,15 @@ function runBotLogic(id,price,rsi){
     if(goLong){
       b.inTrade=true;b.direction='long';b.entry=price;
       b.longCount=(b.longCount||0)+1;
+      b.lastScoreData=scoreData;
       setStatus(id,'long');updateDirPanel(id);
-      botLog(id,`🟢 LONG @ ${fmtPrice(price,b.asset)} RSI:${rsi.toFixed(0)}`+(trend?` [${trend}]`:''),'var(--accent2)');
+      botLog(id,`🟢 LONG @ ${fmtPrice(price,b.asset)} Score:${total>=0?'+':''}${total} RSI:${rsi.toFixed(0)}`,'var(--accent2)');
     } else if(goShort){
       b.inTrade=true;b.direction='short';b.entry=price;
       b.shortCount=(b.shortCount||0)+1;
+      b.lastScoreData=scoreData;
       setStatus(id,'short');updateDirPanel(id);
-      botLog(id,`🔵 SHORT @ ${fmtPrice(price,b.asset)} RSI:${rsi.toFixed(0)}`+(trend?` [${trend}]`:''),'#a855f7');
+      botLog(id,`🔵 SHORT @ ${fmtPrice(price,b.asset)} Score:${total>=0?'+':''}${total} RSI:${rsi.toFixed(0)}`,'#a855f7');
     }
   } else {
     const raw=(price-b.entry)/b.entry;
@@ -1443,6 +1681,8 @@ function closeTrade(id,price,type){
   if(state.tradeHistory.length>100)state.tradeHistory.pop();
   const pe=document.getElementById('bpnl-'+id);
   if(pe){pe.textContent=`${b.pnl>=0?'+':''}$${b.pnl.toFixed(2)}`;pe.className='bot-pnl'+(b.pnl>=0?' pnl-pos':' pnl-neg');}
+  // Erklär-Box mit dem Score vom Einstieg zeigen
+  if(b.lastScoreData)showExplain(id,b.direction,type,b.lastScoreData,gain,diff);
   updateHeader();saveNow();
 }
 
