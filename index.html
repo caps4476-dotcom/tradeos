@@ -662,10 +662,10 @@ function setEl(id,txt){const el=document.getElementById(id);if(el)el.textContent
 // ══════════════════════════════════
 //  AUTH
 // ══════════════════════════════════
-window.switchTab=tab=>{
-  document.querySelectorAll('.login-tab').forEach((t,i)=>t.classList.toggle('active',['login','register'][i]===tab));
-  document.getElementById('sec-login').classList.toggle('hidden',tab!=='login');
-  document.getElementById('sec-register').classList.toggle('hidden',tab!=='register');
+window.switchTab=t=>{
+  document.querySelectorAll('.login-tab').forEach((el,i)=>el.classList.toggle('active',['login','register'][i]===t));
+  document.getElementById('sec-login').classList.toggle('hidden',t!=='login');
+  document.getElementById('sec-register').classList.toggle('hidden',t!=='register');
   setEl('login-err','');
 };
 window.doLogin=async()=>{
@@ -693,12 +693,15 @@ window.doLogout=async()=>{
   else location.reload();
 };
 function authErr(c){
-  return({'auth/invalid-email':'Ungültige E-Mail.',
-          'auth/user-not-found':'Kein Konto gefunden.',
-          'auth/wrong-password':'Falsches Passwort.',
-          'auth/email-already-in-use':'E-Mail bereits registriert.',
-          'auth/weak-password':'Passwort zu schwach (min. 6 Zeichen).',
-          'auth/invalid-credential':'E-Mail oder Passwort falsch.'}[c]||'Fehler: '+c);
+  const map={
+    'auth/invalid-email':'Ungültige E-Mail.',
+    'auth/user-not-found':'Kein Konto gefunden.',
+    'auth/wrong-password':'Falsches Passwort.',
+    'auth/email-already-in-use':'E-Mail bereits registriert.',
+    'auth/weak-password':'Passwort zu schwach (min. 6 Zeichen).',
+    'auth/invalid-credential':'E-Mail oder Passwort falsch.'
+  };
+  return map[c]||'Fehler: '+c;
 }
 
 // ══════════════════════════════════
