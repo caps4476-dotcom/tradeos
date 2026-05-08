@@ -725,6 +725,10 @@ const ASSETS={
   LINK:{sym:'LINKUSDT',label:'Chainlink',type:'crypto',live:true},
   DOT:{sym:'DOTUSDT',label:'Polkadot',  type:'crypto',live:true},
   LTC:{sym:'LTCUSDT',label:'Litecoin',  type:'crypto',live:true},
+  // ⛏ EIGENER COIN — Preis kommt live vom globalen CMIMIC-Markt
+  CMIMIC:{base:1.2,label:'CryptoMimic',type:'crypto',live:false,vol:0.05,
+          isCmimic:true, // Sonderflag für Mining-Verknüpfung
+          emoji:'⛏'},
   EURUSD:{base:1.085,label:'EUR/USD',type:'forex',live:false,vol:0.0003},
   GBPUSD:{base:1.265,label:'GBP/USD',type:'forex',live:false,vol:0.0004},
   USDJPY:{base:149.5,label:'USD/JPY',type:'forex',live:false,vol:0.04},
@@ -1006,7 +1010,7 @@ function buildBots(){
   BOT_META.forEach(cfg=>{
     const b=state.bots[cfg.id];
     const aOpts=Object.keys(ASSETS).map(k=>{
-      const pfx=ASSETS[k].type==='forex'?'💱':ASSETS[k].type==='stock'?'📈':'';
+      const pfx=ASSETS[k].isCmimic?'⛏':ASSETS[k].type==='forex'?'💱':ASSETS[k].type==='stock'?'📈':'';
       return`<div class="asset-btn${b.asset===k?' sel':''}" onclick="selectBotAsset(${cfg.id},'${k}',this)">${pfx}${k}</div>`;
     }).join('');
 
@@ -1159,9 +1163,11 @@ function buildManualAssets(cat){
   const keys=CATS[cat]||CATS.crypto;
   if(!keys.includes(state.manual.asset))state.manual.asset=keys[0];
   const el=document.getElementById('manual-asset-grid');
-  if(el)el.innerHTML=keys.map(k=>
-    `<div class="asset-pill${state.manual.asset===k?' sel':''}" onclick="selectManualAsset('${k}',this)">${ASSETS[k].label.split('/')[0]||k}</div>`
-  ).join('');
+  if(el)el.innerHTML=keys.map(k=>{
+    const pfx=ASSETS[k].isCmimic?'⛏ ':ASSETS[k].label.split('/')[0]||k;
+    const display=ASSETS[k].isCmimic?'⛏ CMIMIC':ASSETS[k].label.split('/')[0]||k;
+    return`<div class="asset-pill${state.manual.asset===k?' sel':''}" onclick="selectManualAsset('${k}',this)">${display}</div>`;
+  }).join('');
   // Kategorie-Tab korrekt markieren
   document.querySelectorAll('.cat-tab').forEach((t,i)=>{
     t.classList.toggle('active',['crypto','forex','stocks'][i]===cat);
@@ -1169,7 +1175,8 @@ function buildManualAssets(cat){
   const note=document.getElementById('manual-asset-note');
   if(note){
     note.textContent=cat==='forex'?'💱 Simulation (kein Live-Feed)':
-                     cat==='stocks'?'📈 Simulation (kein Live-Feed)':'';
+                     cat==='stocks'?'📈 Simulation (kein Live-Feed)':
+                     state.manual.asset==='CMIMIC'?'⛏ Preis kommt vom globalen CMIMIC-Markt — beeinflusst von allen Nutzern!':'';
   }
   updateManualPrice();updateManualStake();
 }
@@ -1343,7 +1350,13 @@ function botLog(id,msg,color){
 function tickSim(){
   Object.keys(ASSETS).forEach(k=>{
     if(ASSETS[k].live)return;
+    // CMIMIC: Preis kommt direkt vom globalen Markt
+    if(ASSETS[k].isCmimic){
+      prices[k]=mState.currentPrice;
+      return;
+    }
     const s=simState[k];
+    if(!s)return;
     s.trendTimer--;
     if(s.trendTimer<=0){s.trend=(Math.random()-.5)*ASSETS[k].vol*.5;s.trendTimer=20+Math.floor(Math.random()*40);}
     const noise=(Math.random()-.5)*ASSETS[k].vol*2;
@@ -1883,6 +1896,16 @@ function closeTrade(id,price,type){
   if(newBal<0){b.inTrade=false;botLog(id,'⚠ Trade gecancelt — Kapital zu gering','var(--warn)');setStatus(id,'idle');updateDirPanel(id);return;}
   state.balance=newBal;b.pnl+=gain;b.inTrade=false;
   if(gain>=0)state.wins++;else state.losses++;state.totalTrades++;
+
+  // Wenn CMIMIC gehandelt wurde → globalen Marktpreis beeinflussen
+  if(ASSETS[b.asset]?.isCmimic&&FIREBASE_OK&&db){
+    const impact=b.direction==='long'?0.001:-0.001; // Long=Nachfrage=+Preis
+    const newCmimicPrice=Math.max(0.01,mState.currentPrice*(1+impact));
+    mState.currentPrice=parseFloat(newCmimicPrice.toFixed(4));
+    window._fb.setDoc(window._fb.doc(db,'cmimic',GM_MARKET_DOC),{
+      price:mState.currentPrice,lastUpdate:Date.now()
+    },{merge:true}).catch(()=>{});
+  }
   const emoji=type==='STOP LOSS'?'🔴':(b.direction==='long'?'🟢':'🔵');
   botLog(id,`${emoji} ${b.direction.toUpperCase()} ${type}: ${gain>=0?'+':''}$${gain.toFixed(2)} | $${state.balance.toFixed(2)}`,gain>=0?'var(--win)':'var(--loss)');
   setStatus(id,type==='STOP LOSS'||type==='AUTO-STOP'?'stop':'idle');
