@@ -257,6 +257,9 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
 .explain-icon{width:14px;flex-shrink:0}
 .explain-text{color:var(--text-dim);line-height:1.5}
 .explain-text b{color:var(--text)}
+/* ── MINING ── */
+#m-btn:active{transform:scale(.92)!important}
+.m-upgrade-row{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border)}
 </style>
 </head>
 <body>
@@ -347,6 +350,7 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
   <div class="tabs">
     <div class="tab active" onclick="showTab('bots')">🤖 BOTS</div>
     <div class="tab" onclick="showTab('manual')">✋ MANUELL</div>
+    <div class="tab" onclick="showTab('mining')">⛏ MINING</div>
     <div class="tab" onclick="showTab('history')">📊 HISTORY</div>
   </div>
 
@@ -417,6 +421,197 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
     </div>
   </div>
 
+  <!-- ═══ MINING TAB ═══ -->
+  <div id="tab-mining" class="hidden">
+
+    <!-- WALLET ÜBERSICHT -->
+    <div class="panel" style="text-align:center">
+      <div class="panel-title">// ⛏ CRYPTOMIMIC MINING</div>
+      <div style="background:linear-gradient(145deg,#010814,#051530);border-radius:16px;padding:16px;margin-bottom:12px">
+        <div style="font-family:var(--mono);font-size:10px;color:var(--text-dim);letter-spacing:1px;margin-bottom:4px">CMIMIC WALLET</div>
+        <div style="font-family:var(--mono);font-size:2.4em;font-weight:800;color:#FFECB3;text-shadow:0 0 12px #ffb347" id="m-coins">0.0000</div>
+        <div style="font-family:var(--mono);font-size:10px;color:var(--text-dim);margin-top:4px">= <span id="m-coins-usd">$0.00</span> USD</div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px">
+        <div class="stat-chip"><div class="stat-val" id="m-hashrate" style="color:#ffb347">1.0</div><div class="stat-lbl">HASHRATE</div></div>
+        <div class="stat-chip"><div class="stat-val" id="m-rig" style="color:#a855f7">0</div><div class="stat-lbl">GPU STUFE</div></div>
+        <div class="stat-chip"><div class="stat-val" id="m-total" style="color:var(--accent2)">0.00</div><div class="stat-lbl">GESCHÜRFT</div></div>
+      </div>
+
+      <!-- MINE BUTTON -->
+      <div id="m-btn" onclick="mMine()" style="width:140px;height:140px;border-radius:50%;margin:0 auto 16px;background:radial-gradient(circle at 35% 20%,#f5b042,#c97e0a);display:flex;align-items:center;justify-content:center;font-size:4rem;cursor:pointer;box-shadow:0 15px 25px rgba(0,0,0,.5),inset 0 2px 4px rgba(255,245,180,.9);transition:transform .1s;user-select:none">
+        ⛏️
+      </div>
+      <div style="font-family:var(--mono);font-size:10px;color:var(--text-dim)">Tippe zum Schürfen!</div>
+      <div id="m-msg" style="min-height:20px;margin-top:6px;font-family:var(--mono);font-size:10px;color:#ffb347;transition:opacity .3s"></div>
+    </div>
+
+    <!-- UPGRADES -->
+    <div class="panel">
+      <div class="panel-title">// 🔧 UPGRADES</div>
+
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border)">
+        <div>
+          <div style="font-family:var(--mono);font-size:11px;color:#FFE0A3">⛏️ Spitzhacke</div>
+          <div style="font-size:9px;color:var(--text-dim);font-family:var(--mono)">+1 Hashrate pro Klick</div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-family:var(--mono);font-size:10px;color:var(--text-dim)" id="m-pick-cost">10 CMIMIC</div>
+          <button class="btn-bot" style="padding:6px 12px;font-size:10px;margin-top:4px;width:auto" id="m-pick-btn" onclick="mUpgradePick()">VERBESSERN ⬆</button>
+        </div>
+      </div>
+
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border)">
+        <div>
+          <div style="font-family:var(--mono);font-size:11px;color:#FFE0A3">🖥️ GPU-Rig</div>
+          <div style="font-size:9px;color:var(--text-dim);font-family:var(--mono)">Passives Einkommen alle 2s</div>
+          <div style="font-size:9px;color:#a855f7;font-family:var(--mono)" id="m-rig-income">+0 CMIMIC/2s</div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-family:var(--mono);font-size:10px;color:var(--text-dim)" id="m-rig-cost">80 CMIMIC</div>
+          <button class="btn-bot" style="padding:6px 12px;font-size:10px;margin-top:4px;width:auto" id="m-rig-btn" onclick="mUpgradeRig()">KAUFEN ⬆</button>
+        </div>
+      </div>
+
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0">
+        <div>
+          <div style="font-family:var(--mono);font-size:11px;color:#FFE0A3">🎲 Glücksfund-Chip</div>
+          <div style="font-size:9px;color:var(--text-dim);font-family:var(--mono)">Bonus-Chance pro Klick</div>
+          <div style="font-size:9px;color:var(--win);font-family:var(--mono)" id="m-luck-chance">Stufe 0 — inaktiv</div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-family:var(--mono);font-size:10px;color:var(--text-dim)" id="m-luck-cost">45 CMIMIC</div>
+          <button class="btn-bot" style="padding:6px 12px;font-size:10px;margin-top:4px;width:auto" id="m-luck-btn" onclick="mUpgradeLuck()">VERBESSERN ⬆</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- CMIMIC MARKT + TRANSFER -->
+    <div class="panel">
+      <div class="panel-title">// 💱 CMIMIC MARKTPLATZ</div>
+
+      <!-- KURS -->
+      <div style="background:var(--surface);border-radius:10px;padding:10px 12px;margin-bottom:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div style="font-family:var(--mono);font-size:9px;color:var(--text-dim)">1 CMIMIC =</div>
+          <div style="font-family:var(--mono);font-size:1.4em;font-weight:bold;color:#ffb347" id="m-price">$1.20</div>
+          <div style="font-family:var(--mono);font-size:10px" id="m-trend">📊 stabil</div>
+        </div>
+        <div style="font-size:8px;color:var(--text-dim);font-family:var(--mono);margin-top:4px">Kurs schwankt alle 10 Sekunden</div>
+      </div>
+
+      <!-- TRADING-KAPITAL TRANSFER -->
+      <div style="background:rgba(0,212,255,.06);border:1px solid rgba(0,212,255,.2);border-radius:10px;padding:10px 12px;margin-bottom:10px">
+        <div style="font-family:var(--mono);font-size:9px;color:var(--accent);letter-spacing:1px;margin-bottom:8px">🔗 VERBINDUNG ZUM TRADING-KONTO</div>
+        <div style="display:flex;justify-content:space-between;font-family:var(--mono);font-size:9px;color:var(--text-dim);margin-bottom:8px">
+          <span>Trading-Kapital:</span><span style="color:#e8f4ff" id="m-trading-bal">$0.00</span>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <button class="btn-buy" style="padding:10px;font-size:11px" onclick="mSellToTrading()">
+            💰 Coins → Trading
+          </button>
+          <button class="btn-sell" style="padding:10px;font-size:11px" onclick="mBuyFromTrading()">
+            🛒 Trading → Coins
+          </button>
+        </div>
+        <div style="font-size:8px;color:var(--text-dim);font-family:var(--mono);margin-top:6px;text-align:center">
+          Alle Coins verkaufen oder alle $ in Coins tauschen
+        </div>
+      </div>
+
+      <!-- STATISTIK -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-family:var(--mono);font-size:9px">
+        <div style="color:var(--text-dim)">Geschürft gesamt:</div>
+        <div style="color:var(--accent2);text-align:right" id="m-total-stat">0.00 CMIMIC</div>
+        <div style="color:var(--text-dim)">In Trading transferiert:</div>
+        <div style="color:var(--win);text-align:right" id="m-transferred">$0.00</div>
+        <div style="color:var(--text-dim)">Aktueller Coin-Wert:</div>
+        <div style="color:#ffb347;text-align:right" id="m-portfolio-val">$0.00</div>
+      </div>
+    </div>
+
+    <!-- GLOBALER CMIMIC MARKT -->
+    <div class="panel">
+      <div class="panel-title">// 🌍 GLOBALER CMIMIC MARKT</div>
+      <div style="font-size:9px;color:var(--text-dim);font-family:var(--mono);margin-bottom:10px;line-height:1.5">
+        Alle Nutzer handeln hier gemeinsam CMIMIC. Viele Käufer → Kurs steigt. Viele Verkäufer → Kurs fällt. Echter Marktmechanismus!
+      </div>
+
+      <!-- GLOBALER KURS -->
+      <div style="background:linear-gradient(135deg,rgba(255,179,71,.08),rgba(255,179,71,.02));border:1px solid rgba(255,179,71,.3);border-radius:10px;padding:12px;margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <div>
+            <div style="font-family:var(--mono);font-size:9px;color:var(--text-dim)">GLOBALER KURS</div>
+            <div style="font-family:var(--mono);font-size:1.6em;font-weight:bold;color:#ffb347" id="gm-price">$1.20</div>
+          </div>
+          <div style="text-align:right">
+            <div style="font-family:var(--mono);font-size:10px" id="gm-change">0.00%</div>
+            <div style="font-family:var(--mono);font-size:9px;color:var(--text-dim)" id="gm-volume">Vol: 0 CMIMIC</div>
+          </div>
+        </div>
+        <!-- Mini Preis-Chart -->
+        <div style="background:var(--surface);border-radius:6px;height:40px;position:relative;overflow:hidden">
+          <canvas id="gm-chart" style="width:100%;height:100%;display:block"></canvas>
+        </div>
+      </div>
+
+      <!-- KAUF / VERKAUF am globalen Markt -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
+        <div style="background:rgba(0,227,150,.06);border:1px solid rgba(0,227,150,.2);border-radius:8px;padding:10px">
+          <div style="font-family:var(--mono);font-size:9px;color:var(--win);margin-bottom:6px">KAUFEN</div>
+          <div style="font-family:var(--mono);font-size:9px;color:var(--text-dim);margin-bottom:6px">Trading → CMIMIC</div>
+          <select id="gm-buy-pct" class="ctrl-sel" style="margin-bottom:6px;font-size:10px">
+            <option value="0.1">10% meines Kapitals</option>
+            <option value="0.25">25% meines Kapitals</option>
+            <option value="0.5">50% meines Kapitals</option>
+            <option value="1.0">100% meines Kapitals</option>
+          </select>
+          <div style="font-family:var(--mono);font-size:9px;color:var(--text-dim);margin-bottom:6px">
+            ≈ <span id="gm-buy-preview">0.00</span> CMIMIC
+          </div>
+          <button class="btn-buy" style="width:100%;padding:8px;font-size:11px" onclick="gmBuy()">▲ KAUFEN</button>
+        </div>
+        <div style="background:rgba(255,69,96,.06);border:1px solid rgba(255,69,96,.2);border-radius:8px;padding:10px">
+          <div style="font-family:var(--mono);font-size:9px;color:var(--loss);margin-bottom:6px">VERKAUFEN</div>
+          <div style="font-family:var(--mono);font-size:9px;color:var(--text-dim);margin-bottom:6px">CMIMIC → Trading</div>
+          <select id="gm-sell-pct" class="ctrl-sel" style="margin-bottom:6px;font-size:10px">
+            <option value="0.1">10% meiner Coins</option>
+            <option value="0.25">25% meiner Coins</option>
+            <option value="0.5">50% meiner Coins</option>
+            <option value="1.0">100% meiner Coins</option>
+          </select>
+          <div style="font-family:var(--mono);font-size:9px;color:var(--text-dim);margin-bottom:6px">
+            ≈ $<span id="gm-sell-preview">0.00</span>
+          </div>
+          <button class="btn-sell" style="width:100%;padding:8px;font-size:11px" onclick="gmSell()">▼ VERKAUFEN</button>
+        </div>
+      </div>
+
+      <!-- LIVE ORDERBOOK -->
+      <div style="background:var(--surface);border-radius:10px;padding:10px 12px;margin-bottom:10px">
+        <div style="font-family:var(--mono);font-size:9px;color:var(--text-dim);letter-spacing:1px;margin-bottom:8px">▸ LIVE ORDERBUCH (letzte 10 Trades)</div>
+        <div id="gm-orderbook" style="font-family:var(--mono);font-size:9px">
+          <div style="color:var(--text-dim)">Noch keine Trades...</div>
+        </div>
+      </div>
+
+      <!-- MARKT STATISTIK -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-family:var(--mono);font-size:9px">
+        <div style="color:var(--text-dim)">Aktive Händler:</div>
+        <div style="color:var(--accent);text-align:right" id="gm-traders">0</div>
+        <div style="color:var(--text-dim)">Gesamt-Volumen:</div>
+        <div style="color:#ffb347;text-align:right" id="gm-total-vol">0 CMIMIC</div>
+        <div style="color:var(--text-dim)">24h Hoch:</div>
+        <div style="color:var(--win);text-align:right" id="gm-high">$0.00</div>
+        <div style="color:var(--text-dim)">24h Tief:</div>
+        <div style="color:var(--loss);text-align:right" id="gm-low">$0.00</div>
+        <div style="color:var(--text-dim)">Meine CMIMIC:</div>
+        <div style="color:#ffb347;text-align:right" id="gm-my-coins">0.00</div>
+      </div>
+    </div>
+
+  </div>
+
   <div id="tab-history" class="hidden">
     <div class="panel">
       <div class="panel-title">// HANDELSHISTORIE</div>
@@ -464,7 +659,9 @@ async function initFirebase(){
     const {initializeApp}=await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js");
     const {getAuth,createUserWithEmailAndPassword,signInWithEmailAndPassword,
            signInAnonymously,onAuthStateChanged,signOut}=await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js");
-    const {getFirestore,doc,setDoc,getDoc,onSnapshot}=await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js");
+    const {getFirestore,doc,setDoc,getDoc,onSnapshot,
+           collection,addDoc,query,orderBy,limit,
+           runTransaction,serverTimestamp,increment}=await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js");
 
     const app=initializeApp(firebaseConfig);
     auth=getAuth(app);
@@ -473,7 +670,10 @@ async function initFirebase(){
 
     // Firebase Funktionen global verfügbar machen
     window._fb={createUserWithEmailAndPassword,signInWithEmailAndPassword,
-                signInAnonymously,onAuthStateChanged,signOut,doc,setDoc,getDoc,onSnapshot};
+                signInAnonymously,onAuthStateChanged,signOut,
+                doc,setDoc,getDoc,onSnapshot,
+                collection,addDoc,query,orderBy,limit,
+                runTransaction,serverTimestamp,increment};
 
     bootMsg('AUTHENTIFIZIERUNG...');
 
@@ -650,6 +850,7 @@ function showApp(){
   restoreManualTradeUI();
   startFeed();
   setTimeout(startRealtimeSync,2000);
+  setTimeout(startGlobalMarket,3000);
 }
 function showLocalFallback(){
   isAnon=true;
@@ -662,10 +863,10 @@ function setEl(id,txt){const el=document.getElementById(id);if(el)el.textContent
 // ══════════════════════════════════
 //  AUTH
 // ══════════════════════════════════
-window.switchTab=t=>{
-  document.querySelectorAll('.login-tab').forEach((el,i)=>el.classList.toggle('active',['login','register'][i]===t));
-  document.getElementById('sec-login').classList.toggle('hidden',t!=='login');
-  document.getElementById('sec-register').classList.toggle('hidden',t!=='register');
+window.switchTab=tab=>{
+  document.querySelectorAll('.login-tab').forEach((t,i)=>t.classList.toggle('active',['login','register'][i]===tab));
+  document.getElementById('sec-login').classList.toggle('hidden',tab!=='login');
+  document.getElementById('sec-register').classList.toggle('hidden',tab!=='register');
   setEl('login-err','');
 };
 window.doLogin=async()=>{
@@ -693,15 +894,12 @@ window.doLogout=async()=>{
   else location.reload();
 };
 function authErr(c){
-  const map={
-    'auth/invalid-email':'Ungültige E-Mail.',
-    'auth/user-not-found':'Kein Konto gefunden.',
-    'auth/wrong-password':'Falsches Passwort.',
-    'auth/email-already-in-use':'E-Mail bereits registriert.',
-    'auth/weak-password':'Passwort zu schwach (min. 6 Zeichen).',
-    'auth/invalid-credential':'E-Mail oder Passwort falsch.'
-  };
-  return map[c]||'Fehler: '+c;
+  return({'auth/invalid-email':'Ungültige E-Mail.',
+          'auth/user-not-found':'Kein Konto gefunden.',
+          'auth/wrong-password':'Falsches Passwort.',
+          'auth/email-already-in-use':'E-Mail bereits registriert.',
+          'auth/weak-password':'Passwort zu schwach (min. 6 Zeichen).',
+          'auth/invalid-credential':'E-Mail oder Passwort falsch.'}[c]||'Fehler: '+c);
 }
 
 // ══════════════════════════════════
@@ -980,11 +1178,12 @@ function buildManualAssets(cat){
 //  TABS
 // ══════════════════════════════════
 window.showTab=t=>{
-  ['bots','manual','history'].forEach((id,i)=>{
+  ['bots','manual','mining','history'].forEach((id,i)=>{
     document.getElementById('tab-'+id).classList.toggle('hidden',id!==t);
     document.querySelectorAll('.tab')[i].classList.toggle('active',id===t);
   });
   if(t==='history')renderHistory();
+  if(t==='mining')mUpdateUI();
 };
 let manualCat='crypto';
 window.setManualCat=(cat,el)=>{
@@ -1972,6 +2171,420 @@ function fmtPrice(p,key){
   if(p>=1)return'$'+p.toFixed(4);
   return'$'+p.toFixed(6);
 }
+
+// ══════════════════════════════════
+//  MINING SYSTEM
+// ══════════════════════════════════
+const MINING_KEY='TRADEOS_MINING_V1';
+
+let mState={
+  coins:10.0,
+  totalMined:0.0,
+  clickPower:1.0,
+  autoLevel:0,
+  luckLevel:0,
+  currentPrice:1.2,
+  lastPrice:1.2,
+  totalTransferred:0.0,
+};
+
+let mAutoInterval=null;
+let mMsgTimeout=null;
+
+function mGetPickCost(){ return Math.floor(10+(mState.clickPower-1)*1.8); }
+function mGetRigCost(){  return Math.floor(80+mState.autoLevel*45); }
+function mGetLuckCost(){ return Math.floor(45+mState.luckLevel*28); }
+function mGetRigIncome(){
+  if(mState.autoLevel===0)return 0;
+  return 0.6*mState.autoLevel+(0.2*mState.autoLevel*mState.autoLevel);
+}
+
+window.mMine=()=>{
+  const btn=document.getElementById('m-btn');
+  if(btn){btn.style.transform='scale(.92)';setTimeout(()=>{if(btn)btn.style.transform='';},100);}
+  let earned=mState.clickPower;
+  // Glücksfund
+  if(mState.luckLevel>0){
+    const chance=Math.min(0.45,0.05+mState.luckLevel*0.045);
+    if(Math.random()<chance){
+      const bonus=Math.floor(mState.clickPower*(0.8+mState.luckLevel*0.45)*10)/10;
+      earned+=bonus;
+      mMsg(`✨ GLÜCKSFUND! +${bonus} CMIMIC`);
+    }
+  }
+  mState.coins+=earned;
+  mState.totalMined+=earned;
+  if(!document.getElementById('m-msg').textContent.includes('GLÜCK'))
+    mMsg(`⛏ +${earned.toFixed(1)} CMIMIC geschürft`);
+  mUpdateUI();
+  mSaveGame();
+};
+
+window.mUpgradePick=()=>{
+  const cost=mGetPickCost();
+  if(mState.coins>=cost){
+    mState.coins-=cost;
+    mState.clickPower=Math.round((mState.clickPower+1)*10)/10;
+    mMsg(`⚡ Spitzhacke verbessert! Hashrate: ${mState.clickPower}`);
+    mUpdateUI();mSaveGame();
+  }
+};
+window.mUpgradeRig=()=>{
+  const cost=mGetRigCost();
+  if(mState.coins>=cost){
+    mState.coins-=cost;
+    mState.autoLevel++;
+    mRestartAuto();
+    mMsg(`🖥️ GPU-Rig Stufe ${mState.autoLevel} aktiv!`);
+    mUpdateUI();mSaveGame();
+  }
+};
+window.mUpgradeLuck=()=>{
+  const cost=mGetLuckCost();
+  if(mState.coins>=cost){
+    mState.coins-=cost;
+    mState.luckLevel++;
+    mMsg(`🍀 Glücksfund Stufe ${mState.luckLevel}!`);
+    mUpdateUI();mSaveGame();
+  }
+};
+
+// Transfer: Coins → Trading-Kapital
+window.mSellToTrading=()=>{
+  if(mState.coins<=0){mMsg('⚠ Keine Coins zum Verkaufen!');return;}
+  const usd=mState.coins*mState.currentPrice;
+  state.balance+=usd;
+  mState.totalTransferred+=usd;
+  mMsg(`💰 ${mState.coins.toFixed(4)} CMIMIC → $${usd.toFixed(2)} Trading-Kapital!`);
+  // Trade in History eintragen
+  state.tradeHistory.unshift({
+    time:new Date().toLocaleTimeString('de-DE'),
+    bot:'MINING',asset:'CMIMIC',
+    type:'MINING → TRADING',
+    gain:usd,diff:0,invested:0,
+    entry:mState.currentPrice,exit:mState.currentPrice,
+    assetType:'crypto'
+  });
+  mState.coins=0;
+  updateHeader();saveNow();mUpdateUI();mSaveGame();
+};
+
+// Transfer: Trading-Kapital → Coins
+window.mBuyFromTrading=()=>{
+  if(state.balance<=0){mMsg('⚠ Kein Trading-Kapital!');return;}
+  const coins=state.balance/mState.currentPrice;
+  mState.coins+=coins;
+  mState.totalMined+=coins;
+  mMsg(`🛒 $${state.balance.toFixed(2)} → ${coins.toFixed(4)} CMIMIC`);
+  state.balance=0;
+  updateHeader();saveNow();mUpdateUI();mSaveGame();
+};
+
+function mMsg(txt){
+  const el=document.getElementById('m-msg');
+  if(!el)return;
+  el.textContent=txt;el.style.opacity='1';
+  if(mMsgTimeout)clearTimeout(mMsgTimeout);
+  mMsgTimeout=setTimeout(()=>{if(el)el.style.opacity='0';},2500);
+}
+
+function mFluctuatePrice(){
+  mState.lastPrice=mState.currentPrice;
+  const change=(Math.random()-0.5)*0.24;
+  let np=mState.currentPrice*(1+change);
+  np=Math.max(0.25,Math.min(8.5,np));
+  mState.currentPrice=parseFloat(np.toFixed(4));
+}
+
+function mUpdateUI(){
+  const s=mState;
+  const usdVal=(s.coins*s.currentPrice);
+  setEl('m-coins',s.coins.toFixed(4));
+  setEl('m-coins-usd','$'+usdVal.toFixed(2));
+  setEl('m-hashrate',s.clickPower.toFixed(1));
+  setEl('m-rig',s.autoLevel);
+  setEl('m-total',s.totalMined.toFixed(2));
+  setEl('m-price','$'+s.currentPrice.toFixed(4));
+  setEl('m-pick-cost',mGetPickCost()+' CMIMIC');
+  setEl('m-rig-cost',mGetRigCost()+' CMIMIC');
+  setEl('m-luck-cost',mGetLuckCost()+' CMIMIC');
+  setEl('m-rig-income','+'+(mGetRigIncome()).toFixed(2)+' CMIMIC/2s');
+  setEl('m-luck-chance',s.luckLevel===0?'Stufe 0 — inaktiv':`Stufe ${s.luckLevel} — ${Math.min(45,5+s.luckLevel*4.5).toFixed(0)}% Chance`);
+  setEl('m-total-stat',s.totalMined.toFixed(2)+' CMIMIC');
+  setEl('m-transferred','$'+s.totalTransferred.toFixed(2));
+  setEl('m-portfolio-val','$'+usdVal.toFixed(2));
+  setEl('m-trading-bal','$'+state.balance.toFixed(2));
+
+  // Trend
+  const trendEl=document.getElementById('m-trend');
+  if(trendEl){
+    if(s.currentPrice>s.lastPrice){trendEl.textContent='📈 steigend 🔥';trendEl.style.color='var(--win)';}
+    else if(s.currentPrice<s.lastPrice){trendEl.textContent='📉 fallend ❄️';trendEl.style.color='var(--loss)';}
+    else{trendEl.textContent='➡️ stabil';trendEl.style.color='var(--text-dim)';}
+  }
+
+  // Button-States
+  const pickBtn=document.getElementById('m-pick-btn');
+  const rigBtn=document.getElementById('m-rig-btn');
+  const luckBtn=document.getElementById('m-luck-btn');
+  if(pickBtn)pickBtn.disabled=s.coins<mGetPickCost();
+  if(rigBtn)rigBtn.disabled=s.coins<mGetRigCost();
+  if(luckBtn)luckBtn.disabled=s.coins<mGetLuckCost();
+}
+
+function mRestartAuto(){
+  if(mAutoInterval)clearInterval(mAutoInterval);
+  if(mState.autoLevel>0){
+    mAutoInterval=setInterval(()=>{
+      const income=mGetRigIncome();
+      if(income>0){
+        mState.coins+=income;
+        mState.totalMined+=income;
+        mUpdateUI();
+      }
+    },2000);
+  }
+}
+
+function mSaveGame(){
+  try{localStorage.setItem(MINING_KEY,JSON.stringify(mState));}catch(e){}
+}
+function mLoadGame(){
+  try{
+    const raw=localStorage.getItem(MINING_KEY);
+    if(raw){
+      const d=JSON.parse(raw);
+      mState.coins=d.coins??10;
+      mState.totalMined=d.totalMined??0;
+      mState.clickPower=d.clickPower??1;
+      mState.autoLevel=d.autoLevel??0;
+      mState.luckLevel=d.luckLevel??0;
+      mState.currentPrice=d.currentPrice??1.2;
+      mState.lastPrice=d.lastPrice??1.2;
+      mState.totalTransferred=d.totalTransferred??0;
+    }
+  }catch(e){}
+  mRestartAuto();
+  mUpdateUI();
+}
+
+// Mining Preis-Schwankung alle 10 Sekunden
+setInterval(()=>{mFluctuatePrice();mUpdateUI();mSaveGame();},10000);
+// Auto-Save alle 30 Sekunden
+setInterval(()=>mSaveGame(),30000);
+
+// Beim Start laden
+mLoadGame();
+
+// ══════════════════════════════════
+//  GLOBALER CMIMIC MARKT
+// ══════════════════════════════════
+const GM_MARKET_DOC='cmimic_market';
+let gmPriceHistory=[];   // für Mini-Chart
+let gmUnsubMarket=null;
+let gmUnsubOrders=null;
+
+// Preis-Preview aktualisieren wenn Dropdown ändert
+function gmUpdatePreviews(){
+  const buyPct=parseFloat(document.getElementById('gm-buy-pct')?.value||0.1);
+  const sellPct=parseFloat(document.getElementById('gm-sell-pct')?.value||0.1);
+  const gmPrice=parseFloat(document.getElementById('gm-price')?.textContent?.replace('$','')||1.2);
+  const buyCoins=(state.balance*buyPct)/gmPrice;
+  const sellUsd=mState.coins*sellPct*gmPrice;
+  setEl('gm-buy-preview',buyCoins.toFixed(4));
+  setEl('gm-sell-preview',sellUsd.toFixed(2));
+  setEl('gm-my-coins',mState.coins.toFixed(4));
+}
+
+// Globaler Kauf: Trading-$ → CMIMIC über geteilten Markt
+window.gmBuy=async()=>{
+  if(!FIREBASE_OK||!db){mMsg('⚠ Firebase nicht verbunden');return;}
+  const pct=parseFloat(document.getElementById('gm-buy-pct')?.value||0.1);
+  const marketSnap=await window._fb.getDoc(window._fb.doc(db,'cmimic',GM_MARKET_DOC));
+  const mktData=marketSnap.exists()?marketSnap.data():{price:1.2,volume:0,high:1.2,low:1.2,traders:0};
+  const price=mktData.price||1.2;
+  const spend=state.balance*pct;
+  if(spend<0.01){mMsg('⚠ Nicht genug Trading-Kapital');return;}
+  const coins=spend/price;
+
+  // Lokaler State
+  state.balance-=spend;
+  mState.coins+=coins;
+  mState.totalMined+=coins;
+
+  // Preis steigt durch Nachfrage (Kauf = bullisch)
+  const newPrice=Math.min(99,price*(1+0.003*pct));
+
+  // Firebase: Markt aktualisieren + Order eintragen
+  try{
+    await window._fb.setDoc(window._fb.doc(db,'cmimic',GM_MARKET_DOC),{
+      price:parseFloat(newPrice.toFixed(4)),
+      volume:(mktData.volume||0)+coins,
+      high:Math.max(mktData.high||0,newPrice),
+      low:Math.min(mktData.low||99,newPrice),
+      traders:(mktData.traders||0),
+      lastUpdate:Date.now(),
+    },{merge:true});
+    await window._fb.addDoc(window._fb.collection(db,'cmimic_orders'),{
+      type:'BUY',
+      user:currentUserId||'anon',
+      userName:document.getElementById('user-badge')?.textContent||'Anonym',
+      coins:parseFloat(coins.toFixed(4)),
+      price:parseFloat(price.toFixed(4)),
+      usd:parseFloat(spend.toFixed(2)),
+      ts:Date.now(),
+    });
+  }catch(e){console.warn('gmBuy error:',e);}
+
+  mMsg(`🛒 ${coins.toFixed(4)} CMIMIC für $${spend.toFixed(2)} gekauft!`);
+  updateHeader();saveNow();mUpdateUI();gmUpdatePreviews();
+};
+
+// Globaler Verkauf: CMIMIC → Trading-$
+window.gmSell=async()=>{
+  if(!FIREBASE_OK||!db){mMsg('⚠ Firebase nicht verbunden');return;}
+  const pct=parseFloat(document.getElementById('gm-sell-pct')?.value||0.1);
+  if(mState.coins<=0){mMsg('⚠ Keine CMIMIC zum Verkaufen');return;}
+  const marketSnap=await window._fb.getDoc(window._fb.doc(db,'cmimic',GM_MARKET_DOC));
+  const mktData=marketSnap.exists()?marketSnap.data():{price:1.2,volume:0};
+  const price=mktData.price||1.2;
+  const sellCoins=mState.coins*pct;
+  const usd=sellCoins*price;
+
+  mState.coins-=sellCoins;
+  state.balance+=usd;
+  mState.totalTransferred+=usd;
+
+  // Preis fällt durch Angebot (Verkauf = bärisch)
+  const newPrice=Math.max(0.01,price*(1-0.003*pct));
+
+  try{
+    await window._fb.setDoc(window._fb.doc(db,'cmimic',GM_MARKET_DOC),{
+      price:parseFloat(newPrice.toFixed(4)),
+      volume:(mktData.volume||0)+sellCoins,
+      high:Math.max(mktData.high||0,newPrice),
+      low:Math.min(mktData.low||99,newPrice),
+      lastUpdate:Date.now(),
+    },{merge:true});
+    await window._fb.addDoc(window._fb.collection(db,'cmimic_orders'),{
+      type:'SELL',
+      user:currentUserId||'anon',
+      userName:document.getElementById('user-badge')?.textContent||'Anonym',
+      coins:parseFloat(sellCoins.toFixed(4)),
+      price:parseFloat(price.toFixed(4)),
+      usd:parseFloat(usd.toFixed(2)),
+      ts:Date.now(),
+    });
+  }catch(e){console.warn('gmSell error:',e);}
+
+  mMsg(`💰 ${sellCoins.toFixed(4)} CMIMIC für $${usd.toFixed(2)} verkauft!`);
+  updateHeader();saveNow();mUpdateUI();gmUpdatePreviews();
+};
+
+// Realtime Listener für globalen Markt
+function startGlobalMarket(){
+  if(!FIREBASE_OK||!db)return;
+
+  // Markt-Daten Listener
+  gmUnsubMarket=window._fb.onSnapshot(
+    window._fb.doc(db,'cmimic',GM_MARKET_DOC),
+    snap=>{
+      if(!snap.exists())return;
+      const d=snap.data();
+      const price=d.price||1.2;
+      const prevPrice=parseFloat(document.getElementById('gm-price')?.textContent?.replace('$','')||1.2);
+      const chgPct=((price-prevPrice)/prevPrice*100);
+
+      setEl('gm-price','$'+price.toFixed(4));
+      const chgEl=document.getElementById('gm-change');
+      if(chgEl){
+        chgEl.textContent=(chgPct>=0?'▲+':'▼')+chgPct.toFixed(2)+'%';
+        chgEl.style.color=chgPct>=0?'var(--win)':'var(--loss)';
+      }
+      setEl('gm-volume','Vol: '+(d.volume||0).toFixed(2)+' CMIMIC');
+      setEl('gm-traders',d.traders||0);
+      setEl('gm-total-vol',(d.volume||0).toFixed(2)+' CMIMIC');
+      setEl('gm-high','$'+(d.high||price).toFixed(4));
+      setEl('gm-low','$'+(d.low||price).toFixed(4));
+
+      // Preis-History für Mini-Chart
+      gmPriceHistory.push(price);
+      if(gmPriceHistory.length>30)gmPriceHistory.shift();
+      drawGmChart();
+      gmUpdatePreviews();
+
+      // Lokalen CMIMIC-Preis auch angleichen
+      mState.currentPrice=price;
+      mState.lastPrice=prevPrice;
+      mUpdateUI();
+    },
+    err=>console.warn('Market listener error:',err)
+  );
+
+  // Orderbuch Listener — letzte 10 Trades
+  const ordersQ=window._fb.query(
+    window._fb.collection(db,'cmimic_orders'),
+    window._fb.orderBy('ts','desc'),
+    window._fb.limit(10)
+  );
+  gmUnsubOrders=window._fb.onSnapshot(ordersQ,snap=>{
+    const el=document.getElementById('gm-orderbook');
+    if(!el)return;
+    if(snap.empty){el.innerHTML='<div style="color:var(--text-dim)">Noch keine Trades...</div>';return;}
+    el.innerHTML=snap.docs.map(d=>{
+      const o=d.data();
+      const isBuy=o.type==='BUY';
+      const color=isBuy?'var(--win)':'var(--loss)';
+      const icon=isBuy?'▲':'▼';
+      const time=new Date(o.ts).toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+      return`<div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0;border-bottom:1px solid rgba(26,51,80,.3)">
+        <div style="color:${color}">${icon} ${o.userName||'Anonym'}</div>
+        <div style="color:var(--text-dim);font-size:8px">${o.coins.toFixed(3)} CMIMIC @ $${o.price.toFixed(3)}</div>
+        <div style="color:${color}">$${o.usd.toFixed(2)}</div>
+      </div>`;
+    }).join('');
+  },err=>console.warn('Orders listener:',err));
+
+  // Händler-Zahl aktualisieren (eigene Präsenz registrieren)
+  if(currentUserId&&!isAnon){
+    window._fb.setDoc(window._fb.doc(db,'cmimic',GM_MARKET_DOC),{
+      traders:1
+    },{merge:true}).catch(()=>{});
+  }
+}
+
+// Mini Preis-Chart für globalen Markt
+function drawGmChart(){
+  const canvas=document.getElementById('gm-chart');
+  if(!resizeCanvas(canvas)||gmPriceHistory.length<2)return;
+  const dpr=window.devicePixelRatio||1;
+  const W=canvas.width,H=canvas.height;
+  const ctx=canvas.getContext('2d');ctx.clearRect(0,0,W,H);
+  const min=Math.min(...gmPriceHistory),max=Math.max(...gmPriceHistory);
+  const range=(max-min)||0.01;
+  const pad=H*.1;
+  const py=v=>pad+(1-(v-min)/range)*(H-pad*2);
+  const px=i=>(i/(gmPriceHistory.length-1))*W;
+  const last=gmPriceHistory.at(-1);
+  const first=gmPriceHistory[0];
+  const lc=last>=first?'#00e396':'#ff4560';
+  const g=ctx.createLinearGradient(0,0,0,H);
+  g.addColorStop(0,lc+'44');g.addColorStop(1,lc+'00');
+  ctx.beginPath();ctx.moveTo(px(0),py(gmPriceHistory[0]));
+  for(let i=1;i<gmPriceHistory.length;i++)ctx.lineTo(px(i),py(gmPriceHistory[i]));
+  ctx.lineTo(px(gmPriceHistory.length-1),H);ctx.lineTo(0,H);ctx.closePath();
+  ctx.fillStyle=g;ctx.fill();
+  ctx.strokeStyle=lc;ctx.lineWidth=1.5*dpr;ctx.beginPath();
+  ctx.moveTo(px(0),py(gmPriceHistory[0]));
+  for(let i=1;i<gmPriceHistory.length;i++)ctx.lineTo(px(i),py(gmPriceHistory[i]));
+  ctx.stroke();
+}
+
+// Dropdown-Listener für Previews
+setTimeout(()=>{
+  document.getElementById('gm-buy-pct')?.addEventListener('change',gmUpdatePreviews);
+  document.getElementById('gm-sell-pct')?.addEventListener('change',gmUpdatePreviews);
+},1000);
 
 // ══════════════════════════════════
 //  START FEED
