@@ -2711,10 +2711,122 @@ function startFeed(){
 }
 
 // ══════════════════════════════════
-//  BOOT
+//  FIREBASE INIT
 // ══════════════════════════════════
-bootMsg('VERBINDE...');
-setTimeout(()=>initFirebase(),100);
+async function initFirebase(){
+  try{
+    const [{initializeApp},{getAuth,createUserWithEmailAndPassword,
+      signInWithEmailAndPassword,signInAnonymously,onAuthStateChanged,signOut},
+      {getFirestore,doc,setDoc,getDoc,onSnapshot}]=await Promise.all([
+      import("https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js"),
+      import("https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js"),
+      import("https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js"),
+    ]);
+
+    const app=initializeApp(firebaseConfig);
+    auth=getAuth(app);
+    db=getFirestore(app);
+    FIREBASE_OK=true;
+
+    window._fb={createUserWithEmailAndPassword,signInWithEmailAndPassword,
+                signInAnonymously,onAuthStateChanged,signOut,
+                doc,setDoc,getDoc,onSnapshot,
+                collection:null,addDoc:null,query:null,orderBy:null,limit:null};
+
+    onAuthStateChanged(auth,async user=>{
+      if(user){
+        currentUserId=user.uid;
+        isAnon=user.isAnonymous;
+        setEl('user-badge',user.isAnonymous?'ANONYM':(user.email||'USER'));
+
+        // Cloud-Daten nachladen und mit lokalem State zusammenführen
+        try{
+          const snap=await getDoc(doc(db,'users',user.uid));
+          if(snap.exists()){
+            const remote=snap.data();
+            // Nimm Cloud wenn mehr Trades vorhanden
+            if((remote.totalTrades||0)>=(state.totalTrades||0)){
+              const prevRunning={1:state.bots[1].running,2:state.bots[2].running,3:state.bots[3].running};
+              state=mergeState(remote);
+              for(let i=1;i<=3;i++)if(prevRunning[i])state.bots[i].running=true;
+            }
+          } else {
+            // Neuer User — lokalen State hochladen
+            await saveNow();
+          }
+        }catch(e){console.warn('Cloud sync:',e);}
+
+        // App aktualisieren falls schon läuft
+        const appVisible=!document.getElementById('app').classList.contains('hidden');
+        if(appVisible){
+          updateHeader();renderHistory();restoreManualTradeUI();
+          for(let i=1;i<=3;i++){
+            const b=state.bots[i];
+            if(b.running){
+              document.getElementById('bc-'+i)?.classList.add('running');
+              const btn=document.getElementById('bbtn-'+i);
+              if(btn){btn.classList.add('running');btn.textContent='⏹ BOT STOPPEN';}
+              if(b.inTrade)setStatus(i,b.direction);
+              updateDirPanel(i);
+            }
+          }
+          showSave('☁ CLOUD SYNC');
+        }
+
+        setTimeout(startRealtimeSync,1000);
+
+        // Markt-Funktionen nachladen
+        setTimeout(async()=>{
+          try{
+            const {collection,addDoc,query,orderBy,limit}=
+              await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js");
+            window._fb.collection=collection;window._fb.addDoc=addDoc;
+            window._fb.query=query;window._fb.orderBy=orderBy;window._fb.limit=limit;
+            startGlobalMarket();
+          }catch(e){console.warn('Market load:',e);}
+        },3000);
+
+      } else {
+        // Nicht eingeloggt — Login zeigen falls App noch nicht sichtbar
+        const appVisible=!document.getElementById('app').classList.contains('hidden');
+        if(!appVisible){
+          hideBoot();showLogin();
+        }
+      }
+    });
+
+  }catch(e){
+    console.error('Firebase failed:',e);
+    showSave('📴 Offline');
+  }
+}
+
+// ══════════════════════════════════
+//  BOOT — App sofort aus lokalem Speicher laden
+// ══════════════════════════════════
+bootMsg('LADE...');
+
+// Sofort lokale Daten laden
+(()=>{
+  const saved=loadLocal();
+  if(saved)state=mergeState(saved);
+})();
+
+// Nach 1.5s App zeigen — Firebase läuft im Hintergrund weiter
+setTimeout(()=>{
+  hideBoot();
+  const appEl=document.getElementById('app');
+  if(!appEl.classList.contains('hidden'))return; // schon gezeigt
+  const saved=loadLocal();
+  if(saved){state=mergeState(saved);showApp();}
+  else{
+    // Kein lokaler Stand — Setup zeigen
+    document.getElementById('setup-overlay').classList.remove('hidden');
+  }
+},1500);
+
+// Firebase parallel starten
+initFirebase();
 </script>
 </body>
 </html>
