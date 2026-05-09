@@ -444,6 +444,16 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
       </div>
       <div style="font-family:var(--mono);font-size:10px;color:var(--text-dim)">Tippe zum Schürfen!</div>
       <div id="m-msg" style="min-height:20px;margin-top:6px;font-family:var(--mono);font-size:10px;color:#ffb347;transition:opacity .3s"></div>
+
+      <!-- PAUSE AUTO-MINING -->
+      <div style="margin-top:10px;display:flex;align-items:center;justify-content:center;gap:10px">
+        <div style="font-family:var(--mono);font-size:9px;color:var(--text-dim)">AUTO-MINING (GPU-Rig)</div>
+        <label class="toggle">
+          <input type="checkbox" id="m-auto-toggle" checked onchange="mToggleAuto(this.checked)">
+          <span class="toggle-slider"></span>
+        </label>
+        <div style="font-family:var(--mono);font-size:9px;color:var(--accent2)" id="m-auto-status">AKTIV</div>
+      </div>
     </div>
 
     <!-- UPGRADES -->
@@ -500,22 +510,37 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
         <div style="font-size:8px;color:var(--text-dim);font-family:var(--mono);margin-top:4px">Kurs schwankt alle 10 Sekunden</div>
       </div>
 
-      <!-- TRADING-KAPITAL TRANSFER -->
+      <!-- TRADING-KAPITAL TRANSFER mit manueller Eingabe -->
       <div style="background:rgba(0,212,255,.06);border:1px solid rgba(0,212,255,.2);border-radius:10px;padding:10px 12px;margin-bottom:10px">
         <div style="font-family:var(--mono);font-size:9px;color:var(--accent);letter-spacing:1px;margin-bottom:8px">🔗 VERBINDUNG ZUM TRADING-KONTO</div>
         <div style="display:flex;justify-content:space-between;font-family:var(--mono);font-size:9px;color:var(--text-dim);margin-bottom:8px">
           <span>Trading-Kapital:</span><span style="color:#e8f4ff" id="m-trading-bal">$0.00</span>
         </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-          <button class="btn-buy" style="padding:10px;font-size:11px" onclick="mSellToTrading()">
-            💰 Coins → Trading
-          </button>
-          <button class="btn-sell" style="padding:10px;font-size:11px" onclick="mBuyFromTrading()">
-            🛒 Trading → Coins
-          </button>
+
+        <!-- COINS VERKAUFEN mit Eingabe -->
+        <div style="background:rgba(0,227,150,.05);border:1px solid rgba(0,227,150,.15);border-radius:8px;padding:8px;margin-bottom:8px">
+          <div style="font-family:var(--mono);font-size:9px;color:var(--win);margin-bottom:6px">💰 COINS VERKAUFEN → Trading-Kapital</div>
+          <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px">
+            <input type="number" id="m-sell-amount" class="login-input" style="margin:0;font-size:12px;padding:8px;flex:1" placeholder="Anzahl CMIMIC" min="0" step="0.0001">
+            <button class="amt-btn" onclick="mSetSellMax()" style="flex-shrink:0;padding:8px;border-radius:8px">MAX</button>
+          </div>
+          <div style="font-family:var(--mono);font-size:9px;color:var(--text-dim);margin-bottom:6px">
+            ≈ $<span id="m-sell-preview">0.00</span> zum Kurs $<span id="m-sell-rate">0.00</span>
+          </div>
+          <button class="btn-buy" style="width:100%;padding:9px;font-size:11px" onclick="mSellToTrading()">▲ VERKAUFEN</button>
         </div>
-        <div style="font-size:8px;color:var(--text-dim);font-family:var(--mono);margin-top:6px;text-align:center">
-          Alle Coins verkaufen oder alle $ in Coins tauschen
+
+        <!-- TRADING → COINS mit Eingabe -->
+        <div style="background:rgba(255,69,96,.05);border:1px solid rgba(255,69,96,.15);border-radius:8px;padding:8px">
+          <div style="font-family:var(--mono);font-size:9px;color:var(--loss);margin-bottom:6px">🛒 TRADING-KAPITAL → Coins kaufen</div>
+          <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px">
+            <input type="number" id="m-buy-amount" class="login-input" style="margin:0;font-size:12px;padding:8px;flex:1" placeholder="Betrag in $" min="0" step="0.01">
+            <button class="amt-btn" onclick="mSetBuyMax()" style="flex-shrink:0;padding:8px;border-radius:8px">MAX</button>
+          </div>
+          <div style="font-family:var(--mono);font-size:9px;color:var(--text-dim);margin-bottom:6px">
+            ≈ <span id="m-buy-preview">0.00</span> CMIMIC
+          </div>
+          <button class="btn-sell" style="width:100%;padding:9px;font-size:11px" onclick="mBuyFromTrading()">▼ KAUFEN</button>
         </div>
       </div>
 
@@ -1250,7 +1275,8 @@ window.toggleBot=id=>{
     const strats=['RSI+Trend (konservativ)','RSI-Momentum (mittel)','RSI-Alle-Signale (aggressiv)'];
     botLog(id,`▶ ${strats[id-1]}`,'var(--accent)');
   } else {setStatus(id,'idle');botLog(id,'⏹ Gestoppt','var(--text-dim)');}
-  updateDirPanel(id);save();
+  updateDirPanel(id);
+  saveNow(); // Sofort speichern — nicht Debounce — damit Bot-Status nach Reload stimmt
 };
 window.selectBotAsset=(id,asset,el)=>{
   const b=state.bots[id];
@@ -2222,7 +2248,45 @@ function mGetRigIncome(){
   return 0.6*mState.autoLevel+(0.2*mState.autoLevel*mState.autoLevel);
 }
 
-window.mMine=()=>{
+let mAutoPaused=false;
+
+window.mToggleAuto=(on)=>{
+  mAutoPaused=!on;
+  setEl('m-auto-status',on?'AKTIV':'PAUSIERT');
+  const statusEl=document.getElementById('m-auto-status');
+  if(statusEl)statusEl.style.color=on?'var(--accent2)':'var(--loss)';
+  if(on)mRestartAuto();
+  else if(mAutoInterval){clearInterval(mAutoInterval);mAutoInterval=null;}
+  mMsg(on?'▶ Auto-Mining aktiviert':'⏸ Auto-Mining pausiert');
+};
+
+window.mSetSellMax=()=>{
+  const input=document.getElementById('m-sell-amount');
+  if(input)input.value=mState.coins.toFixed(4);
+  mUpdateSellPreview();
+};
+window.mSetBuyMax=()=>{
+  const input=document.getElementById('m-buy-amount');
+  if(input)input.value=state.balance.toFixed(2);
+  mUpdateBuyPreview();
+};
+function mUpdateSellPreview(){
+  const input=document.getElementById('m-sell-amount');
+  const amt=parseFloat(input?.value||0);
+  setEl('m-sell-preview',(amt*mState.currentPrice).toFixed(2));
+  setEl('m-sell-rate',mState.currentPrice.toFixed(4));
+}
+function mUpdateBuyPreview(){
+  const input=document.getElementById('m-buy-amount');
+  const amt=parseFloat(input?.value||0);
+  setEl('m-buy-preview',mState.currentPrice>0?(amt/mState.currentPrice).toFixed(4):'0');
+}
+
+// Input-Listener für Previews
+setTimeout(()=>{
+  document.getElementById('m-sell-amount')?.addEventListener('input',mUpdateSellPreview);
+  document.getElementById('m-buy-amount')?.addEventListener('input',mUpdateBuyPreview);
+},1500);
   const btn=document.getElementById('m-btn');
   if(btn){btn.style.transform='scale(.92)';setTimeout(()=>{if(btn)btn.style.transform='';},100);}
   let earned=mState.clickPower;
@@ -2272,14 +2336,17 @@ window.mUpgradeLuck=()=>{
   }
 };
 
-// Transfer: Coins → Trading-Kapital
 window.mSellToTrading=()=>{
-  if(mState.coins<=0){mMsg('⚠ Keine Coins zum Verkaufen!');return;}
-  const usd=mState.coins*mState.currentPrice;
+  const input=document.getElementById('m-sell-amount');
+  const amt=parseFloat(input?.value||0);
+  if(!amt||amt<=0){mMsg('⚠ Bitte Anzahl eingeben!');return;}
+  if(amt>mState.coins){mMsg(`⚠ Nur ${mState.coins.toFixed(4)} CMIMIC verfügbar!`);return;}
+  const usd=amt*mState.currentPrice;
   state.balance+=usd;
+  mState.coins-=amt;
   mState.totalTransferred+=usd;
-  mMsg(`💰 ${mState.coins.toFixed(4)} CMIMIC → $${usd.toFixed(2)} Trading-Kapital!`);
-  // Trade in History eintragen
+  if(input)input.value='';
+  mMsg(`💰 ${amt.toFixed(4)} CMIMIC → $${usd.toFixed(2)} Trading-Kapital!`);
   state.tradeHistory.unshift({
     time:new Date().toLocaleTimeString('de-DE'),
     bot:'MINING',asset:'CMIMIC',
@@ -2288,18 +2355,21 @@ window.mSellToTrading=()=>{
     entry:mState.currentPrice,exit:mState.currentPrice,
     assetType:'crypto'
   });
-  mState.coins=0;
   updateHeader();saveNow();mUpdateUI();mSaveGame();
 };
 
 // Transfer: Trading-Kapital → Coins
 window.mBuyFromTrading=()=>{
-  if(state.balance<=0){mMsg('⚠ Kein Trading-Kapital!');return;}
-  const coins=state.balance/mState.currentPrice;
+  const input=document.getElementById('m-buy-amount');
+  const amt=parseFloat(input?.value||0);
+  if(!amt||amt<=0){mMsg('⚠ Bitte Betrag eingeben!');return;}
+  if(amt>state.balance){mMsg(`⚠ Nur $${state.balance.toFixed(2)} verfügbar!`);return;}
+  const coins=amt/mState.currentPrice;
   mState.coins+=coins;
   mState.totalMined+=coins;
-  mMsg(`🛒 $${state.balance.toFixed(2)} → ${coins.toFixed(4)} CMIMIC`);
-  state.balance=0;
+  state.balance-=amt;
+  if(input)input.value='';
+  mMsg(`🛒 $${amt.toFixed(2)} → ${coins.toFixed(4)} CMIMIC`);
   updateHeader();saveNow();mUpdateUI();mSaveGame();
 };
 
@@ -2337,6 +2407,9 @@ function mUpdateUI(){
   setEl('m-transferred','$'+s.totalTransferred.toFixed(2));
   setEl('m-portfolio-val','$'+usdVal.toFixed(2));
   setEl('m-trading-bal','$'+state.balance.toFixed(2));
+  setEl('m-sell-rate',s.currentPrice.toFixed(4));
+  mUpdateSellPreview();
+  mUpdateBuyPreview();
 
   // Trend
   const trendEl=document.getElementById('m-trend');
@@ -2357,7 +2430,7 @@ function mUpdateUI(){
 
 function mRestartAuto(){
   if(mAutoInterval)clearInterval(mAutoInterval);
-  if(mState.autoLevel>0){
+  if(mState.autoLevel>0&&!mAutoPaused){
     mAutoInterval=setInterval(()=>{
       const income=mGetRigIncome();
       if(income>0){
