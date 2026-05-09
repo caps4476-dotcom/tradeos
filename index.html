@@ -684,29 +684,28 @@ async function initFirebase(){
     const {initializeApp}=await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js");
     const {getAuth,createUserWithEmailAndPassword,signInWithEmailAndPassword,
            signInAnonymously,onAuthStateChanged,signOut}=await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js");
-    const {getFirestore,doc,setDoc,getDoc,onSnapshot,
-           collection,addDoc,query,orderBy,limit,
-           runTransaction,serverTimestamp,increment}=await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js");
+    const {getFirestore,doc,setDoc,getDoc,onSnapshot}=await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js");
 
     const app=initializeApp(firebaseConfig);
     auth=getAuth(app);
     db=getFirestore(app);
     FIREBASE_OK=true;
 
-    // Firebase Funktionen global verfügbar machen
+    // Nur die Basis-Funktionen sofort laden
     window._fb={createUserWithEmailAndPassword,signInWithEmailAndPassword,
                 signInAnonymously,onAuthStateChanged,signOut,
                 doc,setDoc,getDoc,onSnapshot,
-                collection,addDoc,query,orderBy,limit,
-                runTransaction,serverTimestamp,increment};
+                // Markt-Funktionen werden später nachgeladen
+                collection:null,addDoc:null,query:null,
+                orderBy:null,limit:null};
 
     bootMsg('AUTHENTIFIZIERUNG...');
 
-    // Auth State mit Timeout
+    // Auth State mit Timeout — kurz halten damit kein schwarzer Bildschirm
     const authTimeout=setTimeout(()=>{
       console.warn('Auth timeout — local fallback');
       hideBoot();showLocalFallback();
-    },8000);
+    },5000); // 5 Sekunden reichen
 
     onAuthStateChanged(auth,async user=>{
       clearTimeout(authTimeout);
@@ -879,7 +878,20 @@ function showApp(){
   restoreManualTradeUI();
   startFeed();
   setTimeout(startRealtimeSync,2000);
-  setTimeout(startGlobalMarket,3000);
+  // Markt-Funktionen erst nach 5 Sek nachladen — blockiert nicht den Start
+  setTimeout(async()=>{
+    if(!FIREBASE_OK||!db)return;
+    try{
+      const {collection,addDoc,query,orderBy,limit}=
+        await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js");
+      window._fb.collection=collection;
+      window._fb.addDoc=addDoc;
+      window._fb.query=query;
+      window._fb.orderBy=orderBy;
+      window._fb.limit=limit;
+      startGlobalMarket();
+    }catch(e){console.warn('Market functions load failed:',e);}
+  },5000);
 }
 function showLocalFallback(){
   isAnon=true;
@@ -2495,6 +2507,7 @@ function gmUpdatePreviews(){
 // Globaler Kauf: Trading-$ → CMIMIC über geteilten Markt
 window.gmBuy=async()=>{
   if(!FIREBASE_OK||!db){mMsg('⚠ Firebase nicht verbunden');return;}
+  if(!window._fb.collection){mMsg('⏳ Markt lädt noch... kurz warten');return;}
   const pct=parseFloat(document.getElementById('gm-buy-pct')?.value||0.1);
   const marketSnap=await window._fb.getDoc(window._fb.doc(db,'cmimic',GM_MARKET_DOC));
   const mktData=marketSnap.exists()?marketSnap.data():{price:1.2,volume:0,high:1.2,low:1.2,traders:0};
@@ -2539,6 +2552,7 @@ window.gmBuy=async()=>{
 // Globaler Verkauf: CMIMIC → Trading-$
 window.gmSell=async()=>{
   if(!FIREBASE_OK||!db){mMsg('⚠ Firebase nicht verbunden');return;}
+  if(!window._fb.collection){mMsg('⏳ Markt lädt noch... kurz warten');return;}
   const pct=parseFloat(document.getElementById('gm-sell-pct')?.value||0.1);
   if(mState.coins<=0){mMsg('⚠ Keine CMIMIC zum Verkaufen');return;}
   const marketSnap=await window._fb.getDoc(window._fb.doc(db,'cmimic',GM_MARKET_DOC));
@@ -2580,6 +2594,9 @@ window.gmSell=async()=>{
 // Realtime Listener für globalen Markt
 function startGlobalMarket(){
   if(!FIREBASE_OK||!db)return;
+  if(!window._fb.collection||!window._fb.query){
+    console.warn('Market functions not yet loaded');return;
+  }
 
   // Markt-Daten Listener
   gmUnsubMarket=window._fb.onSnapshot(
