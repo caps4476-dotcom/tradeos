@@ -2906,6 +2906,116 @@ function startFeed(){
 // ══════════════════════════════════
 bootMsg('VERBINDE...');
 setTimeout(()=>initFirebase(),100);
+
+// Simple Moving Average Crossover Strategy
+function decideTradeAction(prices, shortWindow = 5, longWindow = 20) {
+    const closes = prices.map(p => p.close);
+    if (closes.length < longWindow) return "Hold";
+
+    // Calculate moving averages
+    const shortMA = closes.slice(-shortWindow).reduce((a, b) => a + b, 0) / shortWindow;
+    const longMA = closes.slice(-longWindow).reduce((a, b) => a + b, 0) / longWindow;
+    const lastClose = closes[closes.length - 1];
+
+    if (lastClose > shortMA && lastClose > longMA && shortMA > longMA) {
+        return "Buy";
+    } else if (lastClose < shortMA && lastClose < longMA && shortMA < longMA) {
+        return "Sell";
+    } else {
+        return "Hold";
+    }
+}
+
+// Function to draw trading signals on the chart
+function drawTradingSignals(ctx, prices, px, py, dpr) {
+    const actions = [];
+    for (let i = 0; i < prices.length; i++) {
+        const action = decideTradeAction(prices.slice(0, i + 1));
+        actions.push(action);
+    }
+
+    // Draw symbols for each candle
+    for (let i = 0; i < actions.length; i++) {
+        const x = px(i);
+        const y = py(prices[i].close);
+
+        if (actions[i] === "Buy") {
+            // Green upward arrow
+            ctx.fillStyle = "#00ff9d";
+            ctx.beginPath();
+            ctx.moveTo(x, y - 10 * dpr);
+            ctx.lineTo(x - 5 * dpr, y);
+            ctx.lineTo(x + 5 * dpr, y);
+            ctx.closePath();
+            ctx.fill();
+        } else if (actions[i] === "Sell") {
+            // Red downward arrow
+            ctx.fillStyle = "#ff4560";
+            ctx.beginPath();
+            ctx.moveTo(x, y + 10 * dpr);
+            ctx.lineTo(x - 5 * dpr, y);
+            ctx.lineTo(x + 5 * dpr, y);
+            ctx.closePath();
+            ctx.fill();
+        } else {
+            // Gray dot for Hold
+            ctx.fillStyle = "#8ab8d8";
+            ctx.beginPath();
+            ctx.arc(x, y, 2 * dpr, 0, Math.PI * 2);
+            ctx.fill();
+        }
+    }
+
+    return actions;
+}
+
+// Function to update the trade table
+function updateTradeTable(prices, actions, strategyName = "MA Crossover") {
+    const tableBody = document.getElementById("trade-table-body");
+    tableBody.innerHTML = "";
+
+    for (let i = 0; i < prices.length; i++) {
+        const row = document.createElement("tr");
+        row.style.borderBottom = "1px solid var(--border)";
+
+        const timeCell = document.createElement("td");
+        timeCell.style.padding = "8px";
+        timeCell.textContent = new Date(prices[i].time).toLocaleString();
+        row.appendChild(timeCell);
+
+        const priceCell = document.createElement("td");
+        priceCell.style.padding = "8px";
+        priceCell.textContent = prices[i].close.toFixed(2);
+        row.appendChild(priceCell);
+
+        const actionCell = document.createElement("td");
+        actionCell.style.padding = "8px";
+        actionCell.textContent = actions[i];
+        row.appendChild(actionCell);
+
+        const strategyCell = document.createElement("td");
+        strategyCell.style.padding = "8px";
+        strategyCell.textContent = strategyName;
+        row.appendChild(strategyCell);
+
+        tableBody.appendChild(row);
+    }
+}
 </script>
+
+<div id="trade-table-container" style="margin-top: 20px; color: var(--text);">
+    <h3>Trading-Entscheidungen</h3>
+    <table id="trade-table" style="width: 100%; border-collapse: collapse;">
+        <thead>
+            <tr style="border-bottom: 1px solid var(--border);">
+                <th style="padding: 8px; text-align: left;">Zeitstempel</th>
+                <th style="padding: 8px; text-align: left;">Close-Preis</th>
+                <th style="padding: 8px; text-align: left;">Aktion</th>
+                <th style="padding: 8px; text-align: left;">Strategie</th>
+            </tr>
+        </thead>
+        <tbody id="trade-table-body"></tbody>
+    </table>
+</div>
 </body>
 </html>
