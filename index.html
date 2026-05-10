@@ -656,32 +656,32 @@ let auth,db,FIREBASE_OK=false;
 
 async function initFirebase(){
   try{
+    // Nur die nötigsten Imports sofort — lädt schnell auch auf Mobilfunk
     const {initializeApp}=await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js");
     const {getAuth,createUserWithEmailAndPassword,signInWithEmailAndPassword,
-           signInAnonymously,onAuthStateChanged,signOut}=await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js");
-    const {getFirestore,doc,setDoc,getDoc,onSnapshot,
-           collection,addDoc,query,orderBy,limit,
-           runTransaction,serverTimestamp,increment}=await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js");
+           signInAnonymously,onAuthStateChanged,signOut}=
+      await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js");
+    const {getFirestore,doc,setDoc,getDoc,onSnapshot}=
+      await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js");
 
     const app=initializeApp(firebaseConfig);
     auth=getAuth(app);
     db=getFirestore(app);
     FIREBASE_OK=true;
 
-    // Firebase Funktionen global verfügbar machen
     window._fb={createUserWithEmailAndPassword,signInWithEmailAndPassword,
                 signInAnonymously,onAuthStateChanged,signOut,
                 doc,setDoc,getDoc,onSnapshot,
-                collection,addDoc,query,orderBy,limit,
-                runTransaction,serverTimestamp,increment};
+                // Markt-Funktionen kommen später
+                collection:null,addDoc:null,query:null,orderBy:null,limit:null};
 
     bootMsg('AUTHENTIFIZIERUNG...');
 
-    // Auth State mit Timeout
+    // Timeout auf 5 Sek — danach lokaler Fallback
     const authTimeout=setTimeout(()=>{
       console.warn('Auth timeout — local fallback');
       hideBoot();showLocalFallback();
-    },8000);
+    },5000);
 
     onAuthStateChanged(auth,async user=>{
       clearTimeout(authTimeout);
@@ -692,12 +692,30 @@ async function initFirebase(){
         bootMsg('LADE DATEN...');
         try{
           const snap=await getDoc(doc(db,'users',user.uid));
-          if(snap.exists())state=mergeState(snap.data());
+          if(snap.exists()){
+            const remote=snap.data();
+            // Nur laden wenn Cloud-Daten mindestens so viele Trades hat wie lokal
+            const local=loadLocal();
+            if(!local||(remote.totalTrades||0)>=(local.totalTrades||0)){
+              state=mergeState(remote);
+            }
+          }
         }catch(e){
           const saved=loadLocal();
           if(saved)state=mergeState(saved);
         }
         hideBoot();showApp();
+
+        // Markt-Funktionen nach 3 Sek nachladen (non-blocking)
+        setTimeout(async()=>{
+          try{
+            const {collection,addDoc,query,orderBy,limit}=
+              await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js");
+            window._fb.collection=collection;window._fb.addDoc=addDoc;
+            window._fb.query=query;window._fb.orderBy=orderBy;window._fb.limit=limit;
+          }catch(e){console.warn('Market imports:',e);}
+        },3000);
+
       } else {
         hideBoot();showLogin();
       }
@@ -852,6 +870,8 @@ function showApp(){
   }
   buildManualAssets(state.manual.cat||'crypto');updateHeader();renderHistory();
   restoreManualTradeUI();
+  // Mining HIER laden — nach DOM ready, nach mergeState
+  mLoadGame();
   startFeed();
   setTimeout(startRealtimeSync,2000);
   setTimeout(startGlobalMarket,3000);
@@ -1250,7 +1270,8 @@ window.toggleBot=id=>{
     const strats=['RSI+Trend (konservativ)','RSI-Momentum (mittel)','RSI-Alle-Signale (aggressiv)'];
     botLog(id,`▶ ${strats[id-1]}`,'var(--accent)');
   } else {setStatus(id,'idle');botLog(id,'⏹ Gestoppt','var(--text-dim)');}
-  updateDirPanel(id);save();
+  updateDirPanel(id);
+  saveNow(); // Sofort speichern — nicht Debounce — Bot-Status sync auf alle Geräte
 };
 window.selectBotAsset=(id,asset,el)=>{
   const b=state.bots[id];
@@ -1840,18 +1861,18 @@ function runBotLogic(id,price,rsi,scoreData){
 
     let goLong=false,goShort=false;
     if(id===1){
-      // ALPHA Konservativ: Score UND Trend müssen stimmen
-      goLong =total>=3&&rsi<OS&&(trend==='bull'||trend==='neutral');
-      goShort=total<=-3&&rsi>OB&&trend==='bear';
+      // ALPHA Konservativ: Score≥2 (war ≥3 — zu streng) + Trend
+      goLong =total>=2&&rsi<OS&&(trend==='bull'||trend==='neutral');
+      goShort=total<=-2&&rsi>OB&&trend==='bear';
     } else if(id===2){
-      // BETA Mittel: Score + RSI-Momentum
+      // BETA Mittel: Score≥1 + RSI-Momentum
       if(b.rsiH.length>=4){
         const rt=b.rsiH.at(-1)-b.rsiH.at(-3);
-        goLong =total>=2&&b.rsiH.at(-1)<(OS+12)&&rt>1.5;
-        goShort=total<=-2&&b.rsiH.at(-1)>(OB-12)&&rt<-1.5;
+        goLong =total>=1&&b.rsiH.at(-1)<(OS+15)&&rt>1.0;
+        goShort=total<=-1&&b.rsiH.at(-1)>(OB-15)&&rt<-1.0;
       }
     } else {
-      // GAMMA Aggressiv: alle RSI-Signale, Score als Info
+      // GAMMA Aggressiv: reiner RSI ohne Score-Filter
       goLong =rsi<OS;
       goShort=rsi>OB;
     }
@@ -1874,7 +1895,8 @@ function runBotLogic(id,price,rsi,scoreData){
     const diff=b.direction==='short'?-raw:raw;
     if(diff<=-b.stopLoss){closeTrade(id,price,'STOP LOSS');return;}
     const tpMul=b.turbo?1.2:1.5;
-    const tp=b.stopLoss*tpMul;
+    // TP realistisch halten: mindestens SL*1.5 aber max 2% damit Trades schließen
+    const tp=Math.min(b.stopLoss*tpMul, 0.02);
     const exitRsi=b.direction==='long'?rsi>OB:rsi<OS;
     const curTrend=getTrend(b.priceH,b.asset);
     const exitTrend=curTrend!==null&&((b.direction==='long'&&curTrend==='bear')||(b.direction==='short'&&curTrend==='bull'));
@@ -2396,8 +2418,8 @@ setInterval(()=>{mFluctuatePrice();mUpdateUI();mSaveGame();},10000);
 // Auto-Save alle 30 Sekunden
 setInterval(()=>mSaveGame(),30000);
 
-// Beim Start laden
-mLoadGame();
+// mLoadGame wird in showApp() aufgerufen — NICHT hier beim Scriptstart
+// (verhindert dass Coins bei 10 starten nach Firebase-Reload)
 
 // ══════════════════════════════════
 //  GLOBALER CMIMIC MARKT
@@ -2422,6 +2444,7 @@ function gmUpdatePreviews(){
 // Globaler Kauf: Trading-$ → CMIMIC über geteilten Markt
 window.gmBuy=async()=>{
   if(!FIREBASE_OK||!db){mMsg('⚠ Firebase nicht verbunden');return;}
+  if(!window._fb?.addDoc){mMsg('⏳ Markt lädt noch... bitte warten');return;}
   const pct=parseFloat(document.getElementById('gm-buy-pct')?.value||0.1);
   const marketSnap=await window._fb.getDoc(window._fb.doc(db,'cmimic',GM_MARKET_DOC));
   const mktData=marketSnap.exists()?marketSnap.data():{price:1.2,volume:0,high:1.2,low:1.2,traders:0};
@@ -2466,6 +2489,7 @@ window.gmBuy=async()=>{
 // Globaler Verkauf: CMIMIC → Trading-$
 window.gmSell=async()=>{
   if(!FIREBASE_OK||!db){mMsg('⚠ Firebase nicht verbunden');return;}
+  if(!window._fb?.addDoc){mMsg('⏳ Markt lädt noch... bitte warten');return;}
   const pct=parseFloat(document.getElementById('gm-sell-pct')?.value||0.1);
   if(mState.coins<=0){mMsg('⚠ Keine CMIMIC zum Verkaufen');return;}
   const marketSnap=await window._fb.getDoc(window._fb.doc(db,'cmimic',GM_MARKET_DOC));
@@ -2507,8 +2531,8 @@ window.gmSell=async()=>{
 // Realtime Listener für globalen Markt
 function startGlobalMarket(){
   if(!FIREBASE_OK||!db)return;
-
-  // Markt-Daten Listener
+  if(!window._fb?.collection){setTimeout(startGlobalMarket,2000);return;}
+  if(!window._fb?.query){setTimeout(startGlobalMarket,2000);return;}
   gmUnsubMarket=window._fb.onSnapshot(
     window._fb.doc(db,'cmimic',GM_MARKET_DOC),
     snap=>{
