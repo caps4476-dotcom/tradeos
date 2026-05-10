@@ -1115,6 +1115,28 @@ function buildBots(){
       <button class="btn-bot${b.running?' running':''}" id="bbtn-${cfg.id}" onclick="toggleBot(${cfg.id})">
         ${b.running?'⏹ BOT STOPPEN':'▶ BOT STARTEN'}
       </button>
+
+      <!-- BACKTEST -->
+      <div style="background:rgba(168,85,247,.06);border:1px solid rgba(168,85,247,.25);border-radius:10px;padding:10px 12px;margin-bottom:8px">
+        <div style="font-family:var(--mono);font-size:11px;color:#a855f7;letter-spacing:2px;margin-bottom:8px">⏱ BACKTEST</div>
+        <div style="font-size:9px;color:var(--text-dim);font-family:var(--mono);margin-bottom:8px;line-height:1.5">
+          Testet deine aktuellen Einstellungen auf echten historischen Daten von Binance.
+        </div>
+        <div style="display:flex;gap:6px;margin-bottom:8px">
+          <select id="bt-period-${cfg.id}" class="ctrl-sel" style="flex:1">
+            <option value="1">1 Tag</option>
+            <option value="3" selected>3 Tage</option>
+            <option value="7">7 Tage</option>
+          </select>
+          <button onclick="runBacktest(${cfg.id})" style="flex:1;padding:8px;border-radius:8px;border:1px solid #a855f7;background:rgba(168,85,247,.1);color:#a855f7;font-family:var(--mono);font-size:11px;cursor:pointer;font-weight:bold">
+            ▶ STARTEN
+          </button>
+        </div>
+        <div id="bt-loading-${cfg.id}" style="display:none;text-align:center;font-family:var(--mono);font-size:9px;color:var(--text-dim);padding:8px">
+          ⏳ Lade historische Daten...
+        </div>
+        <div id="bt-result-${cfg.id}" style="display:none"></div>
+      </div>
       <div class="turbo-panel${b.turbo?' on':''}" id="tpanel-${cfg.id}">
         <div class="turbo-hdr">
           <div class="turbo-title">⚡ TURBO${b.turbo?'<span class="turbo-badge">AN</span>':''}</div>
@@ -2634,8 +2656,243 @@ setTimeout(()=>{
 },1000);
 
 // ══════════════════════════════════
-//  START FEED
+//  BACKTEST ENGINE
 // ══════════════════════════════════
+window.runBacktest=async(id)=>{
+  const b=state.bots[id];
+  const days=parseInt(document.getElementById(`bt-period-${id}`)?.value||3);
+  const loading=document.getElementById(`bt-loading-${id}`);
+  const result=document.getElementById(`bt-result-${id}`);
+  if(!loading||!result)return;
+
+  // Nur für Live-Crypto Assets
+  if(!ASSETS[b.asset]?.live){
+    result.style.display='block';
+    result.innerHTML=`<div style="font-family:var(--mono);font-size:9px;color:var(--warn);padding:6px">⚠ Backtest nur für Live-Crypto verfügbar (BTC, ETH, SOL...)</div>`;
+    return;
+  }
+
+  loading.style.display='block';result.style.display='none';
+
+  try{
+    // Historische Kerzendaten laden (1-Stunden-Kerzen für bessere Signale)
+    // days * 24 Stunden, max 1000 Kerzen
+    const limit=Math.min(days*24,1000);
+    const sym=ASSETS[b.asset].sym;
+    const resp=await fetch(`https://api.binance.com/api/v3/klines?symbol=${sym}&interval=1h&limit=${limit}`);
+    const raw=await resp.json();
+    if(!Array.isArray(raw)||raw.length<20){throw new Error('Zu wenig Daten');}
+
+    const candles=raw.map(c=>({
+      t:c[0],        // Zeitstempel
+      o:parseFloat(c[1]),
+      h:parseFloat(c[2]),
+      l:parseFloat(c[3]),
+      c:parseFloat(c[4]),
+      v:parseFloat(c[5]),
+    }));
+    const closes=candles.map(c=>c.c);
+
+    // Backtest simulieren
+    const startCapital=1000; // Immer mit $1000 testen — unabhängig vom echten Konto
+    let capital=startCapital;
+    let inTrade=false,direction='long',entry=0;
+    const trades=[];
+    const rsiH=[];
+
+    for(let i=14;i<closes.length;i++){
+      const slice=closes.slice(0,i+1);
+      const rsi=calcRSI(slice);
+      rsiH.push(rsi);
+
+      // Score berechnen
+      const sd=calcScore(slice,rsi,b.asset);
+      const{total}=sd;
+
+      // Trend
+      const ema20=calcEMA(slice,Math.min(20,slice.length));
+      const ema50=slice.length>=50?calcEMA(slice,50):calcEMA(slice,slice.length);
+      const trendDiff=(ema20-ema50)/ema50*100;
+      const trend=trendDiff>0.05?'bull':trendDiff<-0.05?'bear':'neutral';
+
+      const price=closes[i];
+      const OS=b.rsiOS, OB=b.rsiOB;
+
+      if(!inTrade){
+        let goLong=false,goShort=false;
+        if(id===1){
+          goLong=total>=2&&rsi<OS&&(trend==='bull'||trend==='neutral');
+          goShort=total<=-2&&rsi>OB&&trend==='bear';
+        } else if(id===2){
+          if(rsiH.length>=4){
+            const rt=rsiH.at(-1)-rsiH.at(-4);
+            goLong=total>=1&&rsi<(OS+15)&&rt>1.0;
+            goShort=total<=-1&&rsi>(OB-15)&&rt<-1.0;
+          }
+        } else {
+          goLong=rsi<OS;
+          goShort=rsi>OB;
+        }
+        if(goLong){inTrade=true;direction='long';entry=price;}
+        else if(goShort){inTrade=true;direction='short';entry=price;}
+      } else {
+        const raw=(price-entry)/entry;
+        const diff=direction==='short'?-raw:raw;
+        const tp=Math.min(b.stopLoss*1.5,0.02);
+        const sl=b.stopLoss;
+        const exitRsi=direction==='long'?rsi>OB:rsi<OS;
+
+        if(diff<=-sl||diff>=tp||exitRsi){
+          const invested=capital*b.risk;
+          const gain=invested*diff;
+          capital+=gain;
+          trades.push({
+            i,price,entry,direction,
+            diff,gain,
+            type:diff<=-sl?'STOP LOSS':diff>=tp?'TP':'RSI-EXIT',
+            rsi:rsi.toFixed(0),
+            time:new Date(candles[i].t).toLocaleDateString('de-DE'),
+          });
+          inTrade=false;
+        }
+      }
+    }
+
+    loading.style.display='none';
+
+    if(trades.length===0){
+      result.style.display='block';
+      result.innerHTML=`<div style="font-family:var(--mono);font-size:9px;color:var(--text-dim);padding:6px;text-align:center">
+        Keine Trades in diesem Zeitraum.<br>RSI-Grenzen eventuell zu eng oder Trend-Filter zu streng.
+      </div>`;
+      return;
+    }
+
+    // Statistik
+    const wins=trades.filter(t=>t.gain>=0);
+    const losses=trades.filter(t=>t.gain<0);
+    const totalPnl=capital-startCapital;
+    const winRate=(wins.length/trades.length*100).toFixed(0);
+    const best=trades.reduce((a,b)=>b.gain>a.gain?b:a,trades[0]);
+    const worst=trades.reduce((a,b)=>b.gain<a.gain?b:a,trades[0]);
+    const avgWin=wins.length?wins.reduce((s,t)=>s+t.gain,0)/wins.length:0;
+    const avgLoss=losses.length?losses.reduce((s,t)=>s+t.gain,0)/losses.length:0;
+    const pnlColor=totalPnl>=0?'var(--win)':'var(--loss)';
+
+    // Equity-Kurve für Mini-Chart
+    const equity=[startCapital];
+    let eq=startCapital;
+    trades.forEach(t=>{eq+=t.gain;equity.push(eq);});
+
+    result.style.display='block';
+    result.innerHTML=`
+      <!-- ERGEBNIS HEADER -->
+      <div style="background:${totalPnl>=0?'rgba(0,227,150,.08)':'rgba(255,69,96,.08)'};border:1px solid ${totalPnl>=0?'rgba(0,227,150,.3)':'rgba(255,69,96,.3)'};border-radius:8px;padding:10px;margin-bottom:8px;text-align:center">
+        <div style="font-family:var(--mono);font-size:9px;color:var(--text-dim);margin-bottom:4px">BACKTEST ERGEBNIS · ${days} Tag${days>1?'e':''} · ${b.asset}</div>
+        <div style="font-family:var(--mono);font-size:1.6em;font-weight:bold;color:${pnlColor}">${totalPnl>=0?'+':''}$${totalPnl.toFixed(2)}</div>
+        <div style="font-family:var(--mono);font-size:10px;color:${pnlColor}">${totalPnl>=0?'+':''}${((totalPnl/startCapital)*100).toFixed(1)}% auf $${startCapital}</div>
+      </div>
+
+      <!-- STATS GRID -->
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:8px">
+        <div style="background:var(--surface);border-radius:8px;padding:6px;text-align:center">
+          <div style="font-family:var(--mono);font-size:13px;font-weight:bold;color:var(--accent)">${trades.length}</div>
+          <div style="font-size:8px;color:var(--text-dim);font-family:var(--mono)">TRADES</div>
+        </div>
+        <div style="background:var(--surface);border-radius:8px;padding:6px;text-align:center">
+          <div style="font-family:var(--mono);font-size:13px;font-weight:bold;color:${parseInt(winRate)>=50?'var(--win)':'var(--loss)'}">${winRate}%</div>
+          <div style="font-size:8px;color:var(--text-dim);font-family:var(--mono)">WIN RATE</div>
+        </div>
+        <div style="background:var(--surface);border-radius:8px;padding:6px;text-align:center">
+          <div style="font-family:var(--mono);font-size:13px;font-weight:bold;color:var(--win)">${wins.length}✓ <span style="color:var(--loss)">${losses.length}✗</span></div>
+          <div style="font-size:8px;color:var(--text-dim);font-family:var(--mono)">G / V</div>
+        </div>
+      </div>
+
+      <!-- DETAILS -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;font-family:var(--mono);font-size:9px;margin-bottom:8px">
+        <div style="color:var(--text-dim)">Bester Trade:</div>
+        <div style="color:var(--win);text-align:right">+$${best.gain.toFixed(2)} (${(best.diff*100).toFixed(2)}%)</div>
+        <div style="color:var(--text-dim)">Schlechtester:</div>
+        <div style="color:var(--loss);text-align:right">$${worst.gain.toFixed(2)} (${(worst.diff*100).toFixed(2)}%)</div>
+        <div style="color:var(--text-dim)">Ø Gewinn:</div>
+        <div style="color:var(--win);text-align:right">+$${avgWin.toFixed(2)}</div>
+        <div style="color:var(--text-dim)">Ø Verlust:</div>
+        <div style="color:var(--loss);text-align:right">$${avgLoss.toFixed(2)}</div>
+        <div style="color:var(--text-dim)">Einstellungen:</div>
+        <div style="color:var(--text-dim);text-align:right">OS:${b.rsiOS} OB:${b.rsiOB} SL:${(b.stopLoss*100).toFixed(0)}%</div>
+      </div>
+
+      <!-- EQUITY MINI CHART -->
+      <div style="background:var(--surface);border-radius:8px;padding:6px;margin-bottom:8px">
+        <div style="font-family:var(--mono);font-size:8px;color:var(--text-dim);margin-bottom:4px">EQUITY-KURVE</div>
+        <canvas id="bt-chart-${id}" style="width:100%;height:50px;display:block"></canvas>
+      </div>
+
+      <!-- LETZTE TRADES -->
+      <div style="font-family:var(--mono);font-size:8px;color:var(--text-dim);margin-bottom:4px">LETZTE 5 TRADES</div>
+      ${trades.slice(-5).reverse().map(t=>`
+        <div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border);font-family:var(--mono);font-size:9px">
+          <div style="color:${t.direction==='long'?'var(--accent2)':'#a855f7'}">${t.direction==='long'?'▲':'▼'} ${t.direction.toUpperCase()}</div>
+          <div style="color:var(--text-dim)">${t.time} · RSI:${t.rsi}</div>
+          <div style="color:${t.gain>=0?'var(--win)':'var(--loss)'}">${t.gain>=0?'+':''}$${t.gain.toFixed(2)}</div>
+        </div>`).join('')}
+
+      <!-- BEWERTUNG -->
+      <div style="background:var(--surface);border-radius:8px;padding:8px;margin-top:8px;font-family:var(--mono);font-size:9px;line-height:1.6">
+        <div style="color:#a855f7;margin-bottom:4px;letter-spacing:1px">💡 BEWERTUNG</div>
+        <div style="color:var(--text-dim)">${btBewertung(totalPnl,startCapital,parseInt(winRate),trades.length,days)}</div>
+      </div>`;
+
+    // Equity-Chart zeichnen
+    setTimeout(()=>drawBtChart(id,equity,pnlColor),100);
+
+  }catch(e){
+    loading.style.display='none';
+    result.style.display='block';
+    result.innerHTML=`<div style="font-family:var(--mono);font-size:9px;color:var(--loss);padding:6px">⚠ Fehler: ${e.message||'Daten konnten nicht geladen werden'}</div>`;
+  }
+};
+
+function drawBtChart(id,equity,color){
+  const cv=document.getElementById(`bt-chart-${id}`);
+  if(!resizeCanvas(cv)||equity.length<2)return;
+  const dpr=window.devicePixelRatio||1;
+  const W=cv.width,H=cv.height;
+  const ctx=cv.getContext('2d');ctx.clearRect(0,0,W,H);
+  const min=Math.min(...equity),max=Math.max(...equity),range=(max-min)||1;
+  const pad=H*.1;
+  const py=v=>pad+(1-(v-min)/range)*(H-pad*2);
+  const px=i=>(i/(equity.length-1))*W;
+  // Null-Linie
+  ctx.setLineDash([3*dpr,3*dpr]);ctx.strokeStyle='rgba(255,255,255,.15)';ctx.lineWidth=1*dpr;
+  ctx.beginPath();ctx.moveTo(0,py(equity[0]));ctx.lineTo(W,py(equity[0]));ctx.stroke();ctx.setLineDash([]);
+  // Fläche
+  const g=ctx.createLinearGradient(0,0,0,H);g.addColorStop(0,color+'44');g.addColorStop(1,color+'00');
+  ctx.beginPath();ctx.moveTo(px(0),py(equity[0]));
+  for(let i=1;i<equity.length;i++)ctx.lineTo(px(i),py(equity[i]));
+  ctx.lineTo(px(equity.length-1),H);ctx.lineTo(0,H);ctx.closePath();ctx.fillStyle=g;ctx.fill();
+  // Linie
+  ctx.strokeStyle=color;ctx.lineWidth=1.5*dpr;ctx.beginPath();
+  ctx.moveTo(px(0),py(equity[0]));for(let i=1;i<equity.length;i++)ctx.lineTo(px(i),py(equity[i]));ctx.stroke();
+}
+
+function btBewertung(pnl,start,wr,trades,days){
+  const pct=(pnl/start)*100;
+  const tpd=trades/days;
+  let text='';
+  if(pct>10)text+=`✅ Sehr profitabel: +${pct.toFixed(1)}% in ${days} Tagen. `;
+  else if(pct>0)text+=`✅ Leicht profitabel: +${pct.toFixed(1)}%. `;
+  else if(pct>-5)text+=`⚠ Kleiner Verlust: ${pct.toFixed(1)}%. Einstellungen leicht anpassen. `;
+  else text+=`❌ Zu viele Verluste: ${pct.toFixed(1)}%. Strategie überdenken. `;
+  if(wr>=60)text+=`Win Rate ${wr}% ist gut. `;
+  else if(wr>=45)text+=`Win Rate ${wr}% ist akzeptabel. `;
+  else text+=`Win Rate ${wr}% ist zu niedrig — RSI-Grenzen anpassen. `;
+  if(tpd>10)text+=`${trades} Trades in ${days} Tagen ist sehr viel — eventuell Grenzen enger setzen.`;
+  else if(tpd<1)text+=`Nur ${trades} Trades in ${days} Tagen — RSI-Grenzen erweitern für mehr Signale.`;
+  else text+=`${trades} Trades in ${days} Tagen ist eine gute Frequenz.`;
+  return text;
+}
 function startFeed(){
   fetchPrices();
   setInterval(fetchPrices,3000);
