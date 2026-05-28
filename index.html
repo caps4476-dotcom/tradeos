@@ -656,7 +656,6 @@ let auth,db,FIREBASE_OK=false;
 
 async function initFirebase(){
   try{
-    // Nur die nötigsten Imports sofort — lädt schnell auch auf Mobilfunk
     const {initializeApp}=await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js");
     const {getAuth,createUserWithEmailAndPassword,signInWithEmailAndPassword,
            signInAnonymously,onAuthStateChanged,signOut}=
@@ -672,58 +671,68 @@ async function initFirebase(){
     window._fb={createUserWithEmailAndPassword,signInWithEmailAndPassword,
                 signInAnonymously,onAuthStateChanged,signOut,
                 doc,setDoc,getDoc,onSnapshot,
-                // Markt-Funktionen kommen später
                 collection:null,addDoc:null,query:null,orderBy:null,limit:null};
 
-    bootMsg('AUTHENTIFIZIERUNG...');
-
-    // Timeout auf 5 Sek — danach lokaler Fallback
-    const authTimeout=setTimeout(()=>{
-      console.warn('Auth timeout — local fallback');
-      hideBoot();showLocalFallback();
-    },5000);
-
     onAuthStateChanged(auth,async user=>{
-      clearTimeout(authTimeout);
       if(user){
         currentUserId=user.uid;
         isAnon=user.isAnonymous;
         setEl('user-badge',user.isAnonymous?'ANONYM':(user.email||'USER'));
-        bootMsg('LADE DATEN...');
+
+        // App läuft bereits — Cloud-Daten still nachladen
         try{
           const snap=await getDoc(doc(db,'users',user.uid));
           if(snap.exists()){
             const remote=snap.data();
-            // Nur laden wenn Cloud-Daten mindestens so viele Trades hat wie lokal
             const local=loadLocal();
             if(!local||(remote.totalTrades||0)>=(local.totalTrades||0)){
+              const prevRunning={1:state.bots[1].running,2:state.bots[2].running,3:state.bots[3].running};
               state=mergeState(remote);
+              for(let i=1;i<=3;i++)if(prevRunning[i])state.bots[i].running=true;
             }
           }
-        }catch(e){
-          const saved=loadLocal();
-          if(saved)state=mergeState(saved);
-        }
-        hideBoot();showApp();
+          updateHeader();renderHistory();
+          showSave('☁ SYNC');
+        }catch(e){}
 
-        // Markt-Funktionen nach 3 Sek nachladen (non-blocking)
+        // Realtime-Sync starten
+        setTimeout(()=>{
+          let first=true;
+          onSnapshot(doc(db,'users',currentUserId),snap=>{
+            if(first){first=false;return;}
+            if(!snap.exists())return;
+            const r=snap.data();if(!r?.balance)return;
+            if(Math.abs((r.balance||0)-state.balance)>0.01||(r.totalTrades||0)!==(state.totalTrades||0)){
+              const prev={1:state.bots[1].running,2:state.bots[2].running,3:state.bots[3].running};
+              state=mergeState(r);
+              for(let i=1;i<=3;i++)if(prev[i])state.bots[i].running=true;
+              updateHeader();renderHistory();showSave('🔄 SYNC');
+            }
+          },()=>{});
+        },2000);
+
+        // Markt-Funktionen nach 3 Sek nachladen
         setTimeout(async()=>{
           try{
             const {collection,addDoc,query,orderBy,limit}=
               await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js");
             window._fb.collection=collection;window._fb.addDoc=addDoc;
             window._fb.query=query;window._fb.orderBy=orderBy;window._fb.limit=limit;
-          }catch(e){console.warn('Market imports:',e);}
+            startGlobalMarket();
+          }catch(e){}
         },3000);
 
       } else {
-        hideBoot();showLogin();
+        // Nicht eingeloggt — Login-Screen zeigen falls App noch nicht läuft
+        if(document.getElementById('app').classList.contains('hidden')&&
+           document.getElementById('setup-overlay').classList.contains('hidden')){
+          document.getElementById('login-screen').classList.remove('hidden');
+        }
       }
     });
 
   }catch(e){
     console.error('Firebase init failed:',e);
-    hideBoot();showLocalFallback();
   }
 }
 
@@ -896,21 +905,38 @@ window.switchTab=tab=>{
 window.doLogin=async()=>{
   const email=document.getElementById('login-email').value.trim();
   const pw=document.getElementById('login-pw').value;
-  try{await window._fb.signInWithEmailAndPassword(auth,email,pw);}
-  catch(e){setEl('login-err',authErr(e.code));}
+  if(!email||!pw){setEl('login-err','Bitte E-Mail und Passwort eingeben.');return;}
+  try{
+    setEl('login-err','Einloggen...');
+    const cred=await window._fb.signInWithEmailAndPassword(auth,email,pw);
+    // Login erfolgreich — Login-Screen schließen und App zeigen
+    document.getElementById('login-screen').classList.add('hidden');
+    if(document.getElementById('app').classList.contains('hidden')){
+      showApp();
+    }
+  }catch(e){setEl('login-err',authErr(e.code));}
 };
 window.doRegister=async()=>{
   const email=document.getElementById('login-email').value.trim();
   const pw=document.getElementById('login-pw').value;
   const cap=parseFloat(document.getElementById('reg-capital').value);
   if(!cap||cap<10){setEl('login-err','Bitte Startkapital angeben (min. $10)');return;}
-  try{state.balance=cap;state.startBalance=cap;
-    await window._fb.createUserWithEmailAndPassword(auth,email,pw);await saveNow();}
-  catch(e){setEl('login-err',authErr(e.code));}
+  try{
+    setEl('login-err','Registrieren...');
+    state.balance=cap;state.startBalance=cap;
+    await window._fb.createUserWithEmailAndPassword(auth,email,pw);
+    document.getElementById('login-screen').classList.add('hidden');
+    await saveNow();
+    if(document.getElementById('app').classList.contains('hidden'))showApp();
+  }catch(e){setEl('login-err',authErr(e.code));}
 };
 window.doAnon=async()=>{
-  try{await window._fb.signInAnonymously(auth);}
-  catch(e){setEl('login-err','Login fehlgeschlagen.');}
+  try{
+    setEl('login-err','Verbinde...');
+    await window._fb.signInAnonymously(auth);
+    document.getElementById('login-screen').classList.add('hidden');
+    if(document.getElementById('app').classList.contains('hidden'))showApp();
+  }catch(e){setEl('login-err','Anonym-Login fehlgeschlagen. Bitte Seite neu laden.');}
 };
 window.doLogout=async()=>{
   if(!confirm('Wirklich ausloggen?'))return;
@@ -3024,10 +3050,28 @@ function startFeed(){
 }
 
 // ══════════════════════════════════
-//  BOOT
+//  BOOT — App sofort starten, kein Warten auf Firebase
 // ══════════════════════════════════
-bootMsg('VERBINDE...');
-setTimeout(()=>initFirebase(),100);
+window.addEventListener('load',()=>{
+  // 1. Sofort lokale Daten laden
+  const saved=loadLocal();
+  if(saved)state=mergeState(saved);
+
+  // 2. Nach 1.5s Boot-Screen ausblenden und App zeigen
+  setTimeout(()=>{
+    hideBoot();
+    if(!document.getElementById('app').classList.contains('hidden'))return;
+    if(loadLocal()){
+      showApp();
+    } else {
+      // Kein lokaler Stand — Setup zeigen
+      document.getElementById('setup-overlay').classList.remove('hidden');
+    }
+  },1500);
+
+  // 3. Firebase parallel im Hintergrund starten — blockiert nicht die App
+  initFirebase();
+});
 
 // Simple Moving Average Crossover Strategy
 function decideTradeAction(prices, shortWindow = 5, longWindow = 20) {
