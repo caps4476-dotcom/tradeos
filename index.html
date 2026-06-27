@@ -1486,23 +1486,25 @@ function processPrices(){
     if(pe){pe.textContent=fmtPrice(price,b.asset);
       if(prev){const chg=(price-prev)/prev*100;ce.textContent=(chg>=0?'▲':'▼')+Math.abs(chg).toFixed(3)+'%';ce.style.color=chg>=0?'var(--win)':'var(--loss)';}}
     drawCandle(i,b.candles,price,b);
-    const rsiSrc=ASSETS[b.asset]?.live?(klineCache[b.asset]||[]):b.priceH;
-    if(rsiSrc.length>=15){
-      const rsi=calcRSI(rsiSrc);
+
+    // RSI IMMER aus priceH — dieselbe Datenbasis wie die Kerzen!
+    // klineCache war falsch weil es 1-Minuten-Daten enthält während
+    // die Kerzen 3-Sekunden-Ticks zeigen — das ergab den Widerspruch.
+    // Beide müssen dieselbe Zeitreihe nutzen damit RSI und Kerzen passen.
+    if(b.priceH.length>=15){
+      const rsi=calcRSI(b.priceH);
       if(!isNaN(rsi)&&rsi>=2&&rsi<=98){
         b.rsiH.push(rsi);if(b.rsiH.length>80)b.rsiH.shift();
         drawRSI(i,b.rsiH,rsi,b.rsiOS,b.rsiOB);
-        // Score aktualisieren
         const sd=calcScore(b.priceH,rsi,b.asset);
         updateScoreUI(i,sd);
-        // Verzögerter Redraw beim ersten Datenpunkt
         if(b.rsiH.length===2){
           setTimeout(()=>drawRSI(i,b.rsiH,b.rsiH.at(-1),b.rsiOS,b.rsiOB),300);
         }
         if(b.running)runBotLogic(i,price,rsi,sd);
       }
     } else if(b.running&&b.priceH.length>0&&b.priceH.length%5===0){
-      botLog(i,`⏳ Daten... ${Math.max(0,15-rsiSrc.length)} fehlen`,'var(--text-dim)');
+      botLog(i,`⏳ Daten... ${Math.max(0,15-b.priceH.length)} fehlen`,'var(--text-dim)');
     }
     if(b.inTrade&&!b.running&&b.entry>0){
       const raw=(price-b.entry)/b.entry;const diff=b.direction==='short'?-raw:raw;
@@ -1636,7 +1638,7 @@ function updateManualCharts(){
   }
   const fakeBot={priceH:manualChart.priceH,inTrade:state.manual.inTrade,entry:state.manual.entry,direction:'long',asset:key};
   drawCandle('m',manualChart.candles,price,fakeBot);
-  const rsiSrc=ASSETS[key]?.live?(klineCache[key]||[]):manualChart.priceH;
+  const rsiSrc=manualChart.priceH; // immer dieselbe Basis wie die Kerzen
   if(rsiSrc.length>=15){
     const rsi=calcRSI(rsiSrc);
     if(!isNaN(rsi)&&rsi>=2&&rsi<=98){
@@ -1697,8 +1699,8 @@ function calcBollinger(h,period=20){
 // Score berechnen: jeder Indikator gibt Punkte (-2 bis +2)
 // Positiv = Long-Signal, Negativ = Short-Signal
 function calcScore(priceH,rsi,asset){
-  const data=ASSETS[asset]?.live&&(klineCache[asset]||[]).length>=15
-    ?klineCache[asset]:priceH;
+  // Score immer aus priceH — konsistent mit RSI und Kerzen
+  const data=priceH.length>=15?priceH.slice(-60):priceH;
 
   const scores={rsi:0,macd:0,bb:0,trend:0};
   const details={rsi:'',macd:'',bb:'',trend:''};
@@ -1865,7 +1867,8 @@ function calcEMA(h,period=9){
 //  TREND FILTER
 // ══════════════════════════════════
 function getTrend(priceH,asset){
-  const data=ASSETS[asset]?.live&&(klineCache[asset]||[]).length>=20?klineCache[asset]:priceH;
+  // Trend immer aus priceH — konsistent mit RSI und Kerzen
+  const data=priceH.length>=20?priceH:priceH;
   if(data.length<20)return null;
   const ema20=calcEMA(data,20);
   const ema50=data.length>=50?calcEMA(data,50):calcEMA(data,data.length);
@@ -1901,8 +1904,7 @@ function runBotLogic(id,price,rsi,scoreData){
 
   if(!b.inTrade){
     if(trend===null&&id!==3){
-      const src=ASSETS[b.asset]?.live?(klineCache[b.asset]||[]):b.priceH;
-      const rem=Math.max(0,20-src.length);
+      const rem=Math.max(0,20-b.priceH.length);
       if(rem>0&&b.priceH.length%5===0)botLog(id,`⏳ Analyse... ${rem} Datenpunkte fehlen`,'var(--text-dim)');
       return;
     }
