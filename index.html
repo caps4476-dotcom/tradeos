@@ -214,23 +214,12 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
 
 /* ── RESPONSIVE ── */
 @media(min-width:600px){
-  #app{max-width:900px;padding:16px}
-  #bot-container{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-  .candle-chart{height:90px}
-  .candle-chart.zoomed{height:180px}
-  .rsi-chart{height:68px}
-  .balance-main{font-size:2.8em!important}
-  .tab{font-size:13px!important;padding:13px!important}
-  .price-big{font-size:2.2em!important}
-  .stat-val{font-size:15px!important}
-  .stat-lbl{font-size:11px!important}
-  .btn-bot{font-size:14px!important;padding:14px!important}
+  #app{max-width:500px;padding:14px}
+  .candle-chart{height:80px}
+  .candle-chart.zoomed{height:170px}
 }
 @media(min-width:900px){
-  #app{max-width:1200px}
-  #bot-container{grid-template-columns:1fr 1fr 1fr}
-  .candle-chart{height:110px}
-  .candle-chart.zoomed{height:210px}
+  #app{max-width:520px}
 }
 @media(max-width:360px){
   .balance-main{font-size:1.8em!important}
