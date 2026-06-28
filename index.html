@@ -789,7 +789,8 @@ function freshBotState(asset,risk,sl,rsiOS,rsiOB){
   return{running:false,asset,risk,stopLoss:sl,compound:true,rsiOS,rsiOB,
          inTrade:false,direction:'long',entry:0,pnl:0,
          priceH:[],rsiH:[],candles:[],status:'idle',
-         longCount:0,shortCount:0,turbo:false,turboMaxLoss:0.10};
+         longCount:0,shortCount:0,turbo:false,turboMaxLoss:0.10,
+         timeframe:'5m'};
 }
 let state={
   balance:1000,startBalance:1000,wins:0,losses:0,totalTrades:0,tradeHistory:[],
@@ -1020,6 +1021,7 @@ function mergeState(saved){
     b.shortCount= sb.shortCount?? 0;
     b.turbo     = sb.turbo     ?? false;
     b.turboMaxLoss = sb.turboMaxLoss ?? 0.10;
+    b.timeframe = sb.timeframe ?? '5m';
     // Offene Bot-Positionen beibehalten
     b.inTrade   = sb.inTrade   ?? false;
     b.entry     = sb.entry     ?? 0;
@@ -1099,6 +1101,13 @@ function buildBots(){
         <div class="chart-lbl">RSI</div>
         <div class="chart-lbl-r" id="rsilbl-${cfg.id}" style="color:var(--warn)"></div>
         <canvas id="crsi-${cfg.id}"></canvas>
+      </div>
+      <!-- TIMEFRAME AUSWAHL -->
+      <div style="display:flex;align-items:center;gap:5px;margin-bottom:10px">
+        <div style="font-family:var(--mono);font-size:9px;color:var(--text-dim);flex-shrink:0">TF:</div>
+        ${['1m','5m','15m','1h','4h'].map(tf=>`<button id="tf-${cfg.id}-${tf}" onclick="setTimeframe(${cfg.id},'${tf}')"
+          style="flex:1;padding:5px 2px;border-radius:6px;cursor:pointer;font-family:var(--mono);font-size:10px;font-weight:${(b.timeframe||'5m')===tf?'bold':'normal'};border:1px solid ${(b.timeframe||'5m')===tf?'var(--accent)':'var(--border)'};background:${(b.timeframe||'5m')===tf?'rgba(0,212,255,.15)':'var(--surface)'};color:${(b.timeframe||'5m')===tf?'var(--accent)':'var(--text-dim)'}"
+        >${tf}</button>`).join('')}
       </div>
       <div class="rsi-ctrl">
         <div class="rsi-ctrl-title">▸ RSI SIGNALGRENZEN</div>
@@ -1330,6 +1339,50 @@ window.selectBotAsset=(id,asset,el)=>{
 };
 window.setBotRisk=(id,v)=>{state.bots[id].risk=parseFloat(v);save();};
 window.setBotSL=(id,v)=>{state.bots[id].stopLoss=parseFloat(v);save();};
+
+// ── TIMEFRAME ──
+const TF_INTERVALS={'1m':'1m','5m':'5m','15m':'15m','1h':'1h','4h':'4h'};
+const TF_LIMITS={'1m':80,'5m':80,'15m':60,'1h':60,'4h':50};
+
+async function loadTfKlines(id){
+  const b=state.bots[id];
+  if(!ASSETS[b.asset]?.live)return;
+  const tf=b.timeframe||'5m';
+  try{
+    const r=await fetch(`https://api.binance.com/api/v3/klines?symbol=${ASSETS[b.asset].sym}&interval=${TF_INTERVALS[tf]}&limit=${TF_LIMITS[tf]||60}`);
+    const d=await r.json();
+    if(!Array.isArray(d)||d.length<5)return;
+    b.priceH=d.map(c=>parseFloat(c[4]));
+    b.candles=d.slice(-40).map(c=>({o:parseFloat(c[1]),h:parseFloat(c[2]),l:parseFloat(c[3]),c:parseFloat(c[4])}));
+    const p=prices[b.asset];if(p)drawCandlestick(id,b.candles,p,b);
+    if(b.priceH.length>=15){
+      const rsi=calcRSI(b.priceH);
+      if(!isNaN(rsi)&&rsi>=2&&rsi<=98){
+        b.rsiH=[];b.rsiH.push(rsi);
+        drawRSI(id,b.rsiH,rsi,b.rsiOS,b.rsiOB);
+      }
+    }
+  }catch(e){}
+}
+
+window.setTimeframe=async(id,tf)=>{
+  const b=state.bots[id];
+  b.timeframe=tf;
+  b.priceH=[];b.rsiH=[];b.candles=[];cBuilders[id]={};
+  // Buttons aktualisieren
+  ['1m','5m','15m','1h','4h'].forEach(t=>{
+    const btn=document.getElementById(`tf-${id}-${t}`);
+    if(!btn)return;
+    const active=t===tf;
+    btn.style.borderColor=active?'var(--accent)':'var(--border)';
+    btn.style.background=active?'rgba(0,212,255,.15)':'var(--surface)';
+    btn.style.color=active?'var(--accent)':'var(--text-dim)';
+    btn.style.fontWeight=active?'bold':'normal';
+  });
+  botLog(id,`📊 Timeframe: ${tf}`,'var(--accent)');
+  await loadTfKlines(id);
+  save();
+};
 window.setBotCompound=(id,v)=>{state.bots[id].compound=v;save();};
 window.setTurbo=(id,on)=>{
   const b=state.bots[id];b.turbo=on;
@@ -1453,6 +1506,12 @@ async function fetchPrices(){
         const d=await r.json();
         if(Array.isArray(d)&&d.length>0)klineCache[k]=d.map(c=>parseFloat(c[4]));
       }catch(e){}
+    }
+  }
+  // Timeframe-Kerzen je Bot alle 20 Ticks nachladen
+  if(klineTick%20===1){
+    for(let i=1;i<=3;i++){
+      if(ASSETS[state.bots[i].asset]?.live)loadTfKlines(i).catch(()=>{});
     }
   }
   processPrices();updateManualPrice();updateManualCharts();updateHeader();
