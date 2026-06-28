@@ -213,17 +213,29 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
 .hidden{display:none!important}
 
 /* ── RESPONSIVE ── */
-/* Bot-Container IMMER einspaltig */
-#bot-container{display:flex!important;flex-direction:column!important;gap:10px}
-#bot-container>.bot-card{width:100%!important;max-width:100%!important;flex:none!important}
-
 @media(min-width:600px){
-  #app{max-width:480px;margin:0 auto;padding:10px}
+  #app{max-width:900px;padding:16px}
+  #bot-container{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .candle-chart{height:90px}
+  .candle-chart.zoomed{height:180px}
+  .rsi-chart{height:68px}
+  .balance-main{font-size:2.8em!important}
+  .tab{font-size:13px!important;padding:13px!important}
+  .price-big{font-size:2.2em!important}
+  .stat-val{font-size:15px!important}
+  .stat-lbl{font-size:11px!important}
+  .btn-bot{font-size:14px!important;padding:14px!important}
+}
+@media(min-width:900px){
+  #app{max-width:1200px}
+  #bot-container{grid-template-columns:1fr 1fr 1fr}
+  .candle-chart{height:110px}
+  .candle-chart.zoomed{height:210px}
 }
 @media(max-width:360px){
-  .bal-main{font-size:1.8em!important}
+  .balance-main{font-size:1.8em!important}
   .price-big{font-size:1.5em!important}
-  .tab{font-size:9px!important;padding:7px 4px!important}
+  .tab{font-size:10px!important;padding:8px!important}
 }
 /* ── SCORE & EXPLAIN BOX ── */
 .score-box{background:var(--surface);border-radius:10px;padding:10px 12px;margin-bottom:8px}
@@ -777,16 +789,14 @@ function freshBotState(asset,risk,sl,rsiOS,rsiOB){
   return{running:false,asset,risk,stopLoss:sl,compound:true,rsiOS,rsiOB,
          inTrade:false,direction:'long',entry:0,pnl:0,
          priceH:[],rsiH:[],candles:[],status:'idle',
-         longCount:0,shortCount:0,turbo:false,turboMaxLoss:0.10,
-         timeframe:'5m'}; // Standard-Timeframe: 5 Minuten
+         longCount:0,shortCount:0,turbo:false,turboMaxLoss:0.10};
 }
-const freshBot=freshBotState; // Alias
 let state={
   balance:1000,startBalance:1000,wins:0,losses:0,totalTrades:0,tradeHistory:[],
   bots:{
-    1:freshBot('BTC', 0.10,0.03,30,70),
-    2:freshBot('ETH', 0.10,0.03,32,68),
-    3:freshBot('DOGE',0.05,0.02,28,65),
+    1:freshBotState('BTC', 0.10,0.03,30,70),
+    2:freshBotState('ETH', 0.10,0.03,32,68),
+    3:freshBotState('DOGE',0.05,0.02,28,65),
   },
   manual:{asset:'BTC',cat:'crypto',inTrade:false,entry:0,amount:0,stopLoss:0.03,takeProfit:0.05,amtPct:5},
 };
@@ -1010,7 +1020,6 @@ function mergeState(saved){
     b.shortCount= sb.shortCount?? 0;
     b.turbo     = sb.turbo     ?? false;
     b.turboMaxLoss = sb.turboMaxLoss ?? 0.10;
-    b.timeframe = sb.timeframe ?? '5m';
     // Offene Bot-Positionen beibehalten
     b.inTrade   = sb.inTrade   ?? false;
     b.entry     = sb.entry     ?? 0;
@@ -1091,18 +1100,7 @@ function buildBots(){
         <div class="chart-lbl-r" id="rsilbl-${cfg.id}" style="color:var(--warn)"></div>
         <canvas id="crsi-${cfg.id}"></canvas>
       </div>
-
-      <!-- TIMEFRAME SELECTOR -->
-      <div style="display:flex;gap:5px;margin-bottom:8px;align-items:center">
-        <div style="font-family:var(--mono);font-size:9px;color:var(--text-dim);margin-right:2px">TF:</div>
-        ${['1m','5m','15m','1h','4h'].map(tf=>`
-        <button onclick="setTimeframe(${cfg.id},'${tf}')" id="tf-${cfg.id}-${tf}"
-          style="flex:1;padding:5px 2px;border-radius:6px;border:1px solid ${(b.timeframe||'5m')===tf?'var(--accent)':'var(--border)'};
-          background:${(b.timeframe||'5m')===tf?'rgba(0,212,255,.15)':'var(--surface)'};
-          color:${(b.timeframe||'5m')===tf?'var(--accent)':'var(--text-dim)'};
-          font-family:var(--mono);font-size:10px;cursor:pointer;font-weight:${(b.timeframe||'5m')===tf?'bold':'normal'}"
-        >${tf}</button>`).join('')}
-      </div>
+      <div class="rsi-ctrl">
         <div class="rsi-ctrl-title">▸ RSI SIGNALGRENZEN</div>
         <div class="rsi-row">
           <div class="rsi-lbl" style="color:var(--win)">🟢 KAUF wenn RSI &lt;</div>
@@ -1333,56 +1331,6 @@ window.selectBotAsset=(id,asset,el)=>{
 window.setBotRisk=(id,v)=>{state.bots[id].risk=parseFloat(v);save();};
 window.setBotSL=(id,v)=>{state.bots[id].stopLoss=parseFloat(v);save();};
 window.setBotCompound=(id,v)=>{state.bots[id].compound=v;save();};
-
-// Timeframe-Kerzendaten je Bot separat cachen
-const tfCache={1:null,2:null,3:null};
-
-window.setTimeframe=async(id,tf)=>{
-  const b=state.bots[id];
-  b.timeframe=tf;
-  // Chart-Daten zurücksetzen
-  b.priceH=[];b.rsiH=[];b.candles=[];
-  cBuilders[id]={};tfCache[id]=null;
-  // Buttons updaten
-  ['1m','5m','15m','1h','4h'].forEach(t=>{
-    const btn=document.getElementById(`tf-${id}-${t}`);
-    if(btn){
-      btn.style.borderColor=t===tf?'var(--accent)':'var(--border)';
-      btn.style.background=t===tf?'rgba(0,212,255,.15)':'var(--surface)';
-      btn.style.color=t===tf?'var(--accent)':'var(--text-dim)';
-      btn.style.fontWeight=t===tf?'bold':'normal';
-    }
-  });
-  botLog(id,`📊 Timeframe gewechselt auf ${tf} — lade Daten...`,'var(--accent)');
-  // Sofort neue Kerzendaten laden
-  if(ASSETS[b.asset]?.live)await loadTfCandles(id);
-  save();
-};
-
-const TF_MAP={'1m':'1m','5m':'5m','15m':'15m','1h':'1h','4h':'4h'};
-const TF_LIMIT={'1m':80,'5m':80,'15m':60,'1h':60,'4h':50};
-const TF_RELOAD={'1m':10,'5m':20,'15m':40,'1h':60,'4h':120};
-
-async function loadTfCandles(id){
-  const b=state.bots[id];
-  if(!ASSETS[b.asset]?.live)return;
-  const tf=b.timeframe||'5m';
-  const sym=ASSETS[b.asset].sym;
-  const limit=TF_LIMIT[tf]||60;
-  try{
-    const r=await fetch(`https://api.binance.com/api/v3/klines?symbol=${sym}&interval=${TF_MAP[tf]}&limit=${limit}`);
-    const d=await r.json();
-    if(!Array.isArray(d)||d.length<5)return;
-    // Schlusskurse als priceH — damit RSI und Trend auf echten Kerzen basieren
-    b.priceH=d.map(c=>parseFloat(c[4]));
-    // Kerzen für Chart aufbauen
-    b.candles=d.slice(-40).map(c=>({
-      o:parseFloat(c[1]),h:parseFloat(c[2]),l:parseFloat(c[3]),c:parseFloat(c[4])
-    }));
-    if(b.candles.length>0)tfCache[id]=tf;
-    botLog(id,`✓ ${d.length} ${tf}-Kerzen geladen`,'var(--accent2)');
-  }catch(e){console.warn('TF load error:',e);}
-}
 window.setTurbo=(id,on)=>{
   const b=state.bots[id];b.turbo=on;
   const panel=document.getElementById('tpanel-'+id);
@@ -1492,7 +1440,6 @@ function tickSim(){
 async function fetchPrices(){
   tickSim();klineTick++;
   const needed=new Set(Object.values(state.bots).map(b=>b.asset).concat([state.manual.asset]));
-  // Aktuellen Preis holen
   for(const k of needed){
     if(!ASSETS[k]?.live)continue;
     try{
@@ -1500,15 +1447,12 @@ async function fetchPrices(){
       const d=await r.json();
       if(d.price)prices[k]=parseFloat(d.price);
     }catch(e){}
-  }
-  // Timeframe-Kerzen je Bot laden
-  for(let i=1;i<=3;i++){
-    const b=state.bots[i];
-    if(!ASSETS[b.asset]?.live)continue;
-    const tf=b.timeframe||'5m';
-    const ticks=TF_RELOAD[tf]||20;
-    if(klineTick%ticks===1||tfCache[i]!==tf){
-      await loadTfCandles(i);
+    if(klineTick%10===1||!klineCache[k]){
+      try{
+        const r=await fetch(`https://api.binance.com/api/v3/klines?symbol=${ASSETS[k].sym}&interval=1m&limit=60`);
+        const d=await r.json();
+        if(Array.isArray(d)&&d.length>0)klineCache[k]=d.map(c=>parseFloat(c[4]));
+      }catch(e){}
     }
   }
   processPrices();updateManualPrice();updateManualCharts();updateHeader();
@@ -1536,43 +1480,29 @@ function processPrices(){
   for(let i=1;i<=3;i++){
     const b=state.bots[i];const price=prices[b.asset];if(!price)continue;
     const prev=prevPrices[b.asset];prevPrices[b.asset]=price;
-
-    // Für Live-Assets mit geladenen TF-Kerzen: priceH kommt aus Kerzendaten (loadTfCandles)
-    // Nur für Sim-Assets oder wenn noch keine TF-Kerzen geladen: Ticks sammeln
-    if(!ASSETS[b.asset]?.live||!tfCache[i]){
-      b.priceH.push(price);if(b.priceH.length>80)b.priceH.shift();
-      feedCandle(i,price);
-    }
-
+    b.priceH.push(price);if(b.priceH.length>80)b.priceH.shift();
+    feedCandle(i,price);
     const pe=document.getElementById('bprice-'+i);const ce=document.getElementById('bchange-'+i);
     if(pe){pe.textContent=fmtPrice(price,b.asset);
       if(prev){const chg=(price-prev)/prev*100;ce.textContent=(chg>=0?'▲':'▼')+Math.abs(chg).toFixed(3)+'%';ce.style.color=chg>=0?'var(--win)':'var(--loss)';}}
-
-    // Live-Chart: letzte Kerze mit aktuellem Preis updaten
-    if(ASSETS[b.asset]?.live&&tfCache[i]&&b.candles.length>0){
-      // Aktuelle (letzte) Kerze mit aktuellem Preis aktualisieren
-      const last=b.candles[b.candles.length-1];
-      last.h=Math.max(last.h,price);
-      last.l=Math.min(last.l,price);
-      last.c=price;
-    }
     drawCandle(i,b.candles,price,b);
-
-    // RSI aus priceH — für Live-Assets sind das die TF-Schlusskurse
-    if(b.priceH.length>=15){
-      const rsi=calcRSI(b.priceH);
+    const rsiSrc=ASSETS[b.asset]?.live?(klineCache[b.asset]||[]):b.priceH;
+    if(rsiSrc.length>=15){
+      const rsi=calcRSI(rsiSrc);
       if(!isNaN(rsi)&&rsi>=2&&rsi<=98){
         b.rsiH.push(rsi);if(b.rsiH.length>80)b.rsiH.shift();
         drawRSI(i,b.rsiH,rsi,b.rsiOS,b.rsiOB);
+        // Score aktualisieren
         const sd=calcScore(b.priceH,rsi,b.asset);
         updateScoreUI(i,sd);
+        // Verzögerter Redraw beim ersten Datenpunkt
         if(b.rsiH.length===2){
           setTimeout(()=>drawRSI(i,b.rsiH,b.rsiH.at(-1),b.rsiOS,b.rsiOB),300);
         }
         if(b.running)runBotLogic(i,price,rsi,sd);
       }
     } else if(b.running&&b.priceH.length>0&&b.priceH.length%5===0){
-      botLog(i,`⏳ Daten... ${Math.max(0,15-b.priceH.length)} fehlen`,'var(--text-dim)');
+      botLog(i,`⏳ Daten... ${Math.max(0,15-rsiSrc.length)} fehlen`,'var(--text-dim)');
     }
     if(b.inTrade&&!b.running&&b.entry>0){
       const raw=(price-b.entry)/b.entry;const diff=b.direction==='short'?-raw:raw;
@@ -1706,7 +1636,7 @@ function updateManualCharts(){
   }
   const fakeBot={priceH:manualChart.priceH,inTrade:state.manual.inTrade,entry:state.manual.entry,direction:'long',asset:key};
   drawCandle('m',manualChart.candles,price,fakeBot);
-  const rsiSrc=manualChart.priceH; // immer dieselbe Basis wie die Kerzen
+  const rsiSrc=ASSETS[key]?.live?(klineCache[key]||[]):manualChart.priceH;
   if(rsiSrc.length>=15){
     const rsi=calcRSI(rsiSrc);
     if(!isNaN(rsi)&&rsi>=2&&rsi<=98){
@@ -1767,8 +1697,8 @@ function calcBollinger(h,period=20){
 // Score berechnen: jeder Indikator gibt Punkte (-2 bis +2)
 // Positiv = Long-Signal, Negativ = Short-Signal
 function calcScore(priceH,rsi,asset){
-  // Score immer aus priceH — konsistent mit RSI und Kerzen
-  const data=priceH.length>=15?priceH.slice(-60):priceH;
+  const data=ASSETS[asset]?.live&&(klineCache[asset]||[]).length>=15
+    ?klineCache[asset]:priceH;
 
   const scores={rsi:0,macd:0,bb:0,trend:0};
   const details={rsi:'',macd:'',bb:'',trend:''};
@@ -1935,8 +1865,7 @@ function calcEMA(h,period=9){
 //  TREND FILTER
 // ══════════════════════════════════
 function getTrend(priceH,asset){
-  // Trend immer aus priceH — konsistent mit RSI und Kerzen
-  const data=priceH.length>=20?priceH:priceH;
+  const data=ASSETS[asset]?.live&&(klineCache[asset]||[]).length>=20?klineCache[asset]:priceH;
   if(data.length<20)return null;
   const ema20=calcEMA(data,20);
   const ema50=data.length>=50?calcEMA(data,50):calcEMA(data,data.length);
@@ -1972,7 +1901,8 @@ function runBotLogic(id,price,rsi,scoreData){
 
   if(!b.inTrade){
     if(trend===null&&id!==3){
-      const rem=Math.max(0,20-b.priceH.length);
+      const src=ASSETS[b.asset]?.live?(klineCache[b.asset]||[]):b.priceH;
+      const rem=Math.max(0,20-src.length);
       if(rem>0&&b.priceH.length%5===0)botLog(id,`⏳ Analyse... ${rem} Datenpunkte fehlen`,'var(--text-dim)');
       return;
     }
