@@ -213,13 +213,12 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
 .hidden{display:none!important}
 
 /* ── RESPONSIVE ── */
+/* Bot-Container immer einspaltig — auf allen Geräten */
+#bot-container{display:block!important}
+#bot-container .bot-card{display:block;width:100%}
+
 @media(min-width:600px){
   #app{max-width:500px;padding:14px}
-  .candle-chart{height:80px}
-  .candle-chart.zoomed{height:170px}
-}
-@media(min-width:900px){
-  #app{max-width:520px}
 }
 @media(max-width:360px){
   .balance-main{font-size:1.8em!important}
