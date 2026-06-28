@@ -1373,6 +1373,7 @@ window.setTimeframe=async(id,tf)=>{
 
 const TF_MAP={'1m':'1m','5m':'5m','15m':'15m','1h':'1h','4h':'4h'};
 const TF_LIMIT={'1m':80,'5m':80,'15m':60,'1h':60,'4h':50};
+const TF_RELOAD={'1m':10,'5m':20,'15m':40,'1h':60,'4h':120};
 
 async function loadTfCandles(id){
   const b=state.bots[id];
@@ -1500,40 +1501,6 @@ function tickSim(){
 // ══════════════════════════════════
 //  FETCH PRICES
 // ══════════════════════════════════
-const TF_MAP={'1m':'1m','5m':'5m','15m':'15m','1h':'1h','4h':'4h'};
-const TF_LIMIT={'1m':80,'5m':80,'15m':60,'1h':60,'4h':50};
-const TF_RELOAD={'1m':10,'5m':20,'15m':40,'1h':60,'4h':120};
-
-async function loadTfCandles(id){
-  const b=state.bots[id];
-  if(!ASSETS[b.asset]?.live)return;
-  const tf=b.timeframe||'5m';
-  const sym=ASSETS[b.asset].sym;
-  const limit=TF_LIMIT[tf]||60;
-  try{
-    const r=await fetch(`https://api.binance.com/api/v3/klines?symbol=${sym}&interval=${TF_MAP[tf]}&limit=${limit}`);
-    const d=await r.json();
-    if(!Array.isArray(d)||d.length<5)return;
-    // priceH = Schlusskurse der historischen Kerzen (RSI-Basis)
-    b.priceH=d.map(c=>parseFloat(c[4]));
-    // Kerzen für Chart aufbauen
-    b.candles=d.slice(-40).map(c=>({
-      o:parseFloat(c[1]),h:parseFloat(c[2]),l:parseFloat(c[3]),c:parseFloat(c[4])
-    }));
-    // RSI sofort neu berechnen
-    if(b.priceH.length>=15){
-      const rsi=calcRSI(b.priceH);
-      if(!isNaN(rsi)&&rsi>=2&&rsi<=98){
-        b.rsiH.push(rsi);if(b.rsiH.length>80)b.rsiH.shift();
-        drawRSI(id,b.rsiH,rsi,b.rsiOS,b.rsiOB);
-      }
-    }
-    // Chart neu zeichnen
-    const p=prices[b.asset];if(p)drawCandle(id,b.candles,p,b);
-    tfCache[id]=tf;
-  }catch(e){console.warn('TF load:',e);}
-}
-
 async function fetchPrices(){
   tickSim();klineTick++;
   const needed=new Set(Object.values(state.bots).map(b=>b.asset).concat([state.manual.asset]));
