@@ -213,17 +213,17 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
 .hidden{display:none!important}
 
 /* ── RESPONSIVE ── */
-/* Bot-Container immer einspaltig — auf allen Geräten */
-#bot-container{display:block!important}
-#bot-container .bot-card{display:block;width:100%}
+/* Bot-Container IMMER einspaltig */
+#bot-container{display:flex!important;flex-direction:column!important;gap:10px}
+#bot-container>.bot-card{width:100%!important;max-width:100%!important;flex:none!important}
 
 @media(min-width:600px){
-  #app{max-width:500px;padding:14px}
+  #app{max-width:480px;margin:0 auto;padding:10px}
 }
 @media(max-width:360px){
-  .balance-main{font-size:1.8em!important}
+  .bal-main{font-size:1.8em!important}
   .price-big{font-size:1.5em!important}
-  .tab{font-size:10px!important;padding:8px!important}
+  .tab{font-size:9px!important;padding:7px 4px!important}
 }
 /* ── SCORE & EXPLAIN BOX ── */
 .score-box{background:var(--surface);border-radius:10px;padding:10px 12px;margin-bottom:8px}
