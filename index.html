@@ -260,6 +260,24 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
 /* ── MINING ── */
 #m-btn:active{transform:scale(.92)!important}
 .m-upgrade-row{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border)}
+
+/* ── SIGNAL-BOT MODUL ── */
+.tabs .tab{padding-left:4px;padding-right:4px;letter-spacing:.5px}
+.sg-card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:14px;margin-bottom:10px}
+.sg-title{font-family:var(--mono);font-size:10px;color:var(--text-dim);letter-spacing:2px;margin-bottom:10px}
+.sg-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.sg-stat{background:var(--surface);border-radius:8px;padding:8px;text-align:center}
+.sg-stat b{display:block;font-family:var(--mono);font-size:16px}
+.sg-stat span{font-family:var(--mono);font-size:9px;color:var(--text-dim)}
+.sg-row{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);font-size:12px}
+.sg-row:last-child{border-bottom:none}
+.sg-mono{font-family:var(--mono)}
+.sg-dim{color:var(--text-dim);font-size:10px}
+.sg-pos{color:var(--win)}.sg-neg{color:var(--loss)}
+.sg-in{width:100%;background:var(--surface);border:1px solid var(--border);color:#fff;font-family:var(--mono);font-size:13px;padding:9px;border-radius:8px;outline:none;margin-top:3px}
+.sg-lbl{font-family:var(--mono);font-size:9px;color:var(--text-dim);display:block;margin-top:8px}
+.sg-btn{width:100%;background:var(--accent);color:var(--bg);border:none;border-radius:8px;padding:10px;font-family:var(--sans);font-weight:700;margin-top:10px;cursor:pointer}
+.sg-chart{width:100%;height:110px;display:block;background:var(--surface);border-radius:8px}
 </style>
 </head>
 <body>
@@ -352,6 +370,7 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
     <div class="tab" onclick="showTab('manual')">✋ MANUELL</div>
     <div class="tab" onclick="showTab('mining')">⛏ MINING</div>
     <div class="tab" onclick="showTab('history')">📊 HISTORY</div>
+    <div class="tab" onclick="showTab('signal')">📡 SIGNAL</div>
   </div>
 
   <div id="tab-bots"><div id="bot-container"></div></div>
@@ -610,6 +629,35 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
       </div>
     </div>
 
+  </div>
+
+
+  <div id="tab-signal" class="hidden">
+    <div class="sg-card">
+      <div class="sg-title">// SIGNAL-BOT · VIRTUELLES KONTO</div>
+      <div class="sg-grid" id="sg-stats"><div class="sg-dim">Lade Daten …</div></div>
+      <canvas id="sg-curve" class="sg-chart" style="margin-top:10px"></canvas>
+      <div class="sg-dim" id="sg-note" style="margin-top:8px"></div>
+    </div>
+    <div class="sg-card">
+      <div class="sg-title">// OFFENE SIGNALE (LIVE)</div>
+      <div id="sg-open"><div class="sg-dim">–</div></div>
+    </div>
+    <div class="sg-card">
+      <div class="sg-title">// AUSWERTUNG NACH STRATEGIE</div>
+      <div id="sg-groups"><div class="sg-dim">–</div></div>
+    </div>
+    <div class="sg-card">
+      <div class="sg-title">// LETZTE TRADES</div>
+      <div id="sg-last"><div class="sg-dim">–</div></div>
+    </div>
+    <div class="sg-card">
+      <div class="sg-title">// EINSTELLUNGEN</div>
+      <label class="sg-lbl">STARTKAPITAL</label><input class="sg-in" id="sg-cap" type="number" inputmode="decimal">
+      <label class="sg-lbl">RISIKO PRO TRADE (%)</label><input class="sg-in" id="sg-risk" type="number" inputmode="decimal" step="0.1">
+      <label class="sg-lbl">KOSTEN PRO TRADE, SPREAD + GEBÜHREN (% der Positionsgröße)</label><input class="sg-in" id="sg-cost" type="number" inputmode="decimal" step="0.01">
+      <button class="sg-btn" onclick="sgSave()">ÜBERNEHMEN &amp; NEU RECHNEN</button>
+    </div>
   </div>
 
   <div id="tab-history" class="hidden">
@@ -1262,11 +1310,12 @@ function buildManualAssets(cat){
 //  TABS
 // ══════════════════════════════════
 window.showTab=t=>{
-  ['bots','manual','mining','history'].forEach((id,i)=>{
+  ['bots','manual','mining','history','signal'].forEach((id,i)=>{
     document.getElementById('tab-'+id).classList.toggle('hidden',id!==t);
     document.querySelectorAll('.tab')[i].classList.toggle('active',id===t);
   });
   if(t==='history')renderHistory();
+  if(t==='signal'&&window.sgRefresh)window.sgRefresh();
   if(t==='mining')mUpdateUI();
 };
 let manualCat='crypto';
@@ -3242,5 +3291,156 @@ function updateTradeTable(prices, actions, strategyName = "MA Crossover") {
         <tbody id="trade-table-body"></tbody>
     </table>
 </div>
+
+<script>
+// ══════════════════════════════════
+//  SIGNAL-BOT MODUL (eigenständig, liest Trades aus dem GitHub-Repo)
+// ══════════════════════════════════
+(function(){
+  var RAW='https://raw.githubusercontent.com/caps4476-dotcom/15min-Trading-Bot/main/';
+  var LABEL={RETEST:'Re-Test',MOMENTUM:'Momentum',BREAKOUT:'Breakout'};
+  var cfg={cap:10000,risk:1,cost:0.1};
+  try{var s=JSON.parse(localStorage.getItem('sg_cfg')||'null');if(s)cfg=Object.assign(cfg,s);}catch(e){}
+  var hist=[],open={},prices={},loaded=false,busy=false;
+
+  function esc(v){return String(v==null?'':v).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+  function el(id){return document.getElementById(id);}
+  function money(v){return (v>=0?'+':'-')+'$'+Math.abs(v).toFixed(2);}
+  function pc(v){return (v>=0?'+':'')+v.toFixed(2)+'%';}
+  function cls(v){return v>=0?'sg-pos':'sg-neg';}
+  function dec(p){return p>=1000?2:p>=10?3:5;}
+  function when(v){
+    if(!v)return '';
+    var d=new Date(String(v).replace(' ','T'));
+    if(isNaN(d))return esc(v);
+    return d.toLocaleString('de-DE',{timeZone:'Europe/Berlin',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+  }
+  async function getJson(name){
+    var r=await fetch(RAW+name+'?t='+Date.now(),{cache:'no-store'});
+    if(!r.ok)throw new Error(name+' '+r.status);
+    return r.json();
+  }
+  async function getPrice(sym){
+    var urls=['https://api.binance.com','https://data-api.binance.vision'];
+    for(var i=0;i<urls.length;i++){
+      try{var r=await fetch(urls[i]+'/api/v3/ticker/price?symbol='+sym);if(r.ok){var d=await r.json();return parseFloat(d.price);}}catch(e){}
+    }
+    return null;
+  }
+
+  // Simulation: fester Risiko-Anteil vom aktuellen Kontostand, Kosten als % der Positionsgröße
+  function simulate(){
+    var eq=cfg.cap,peak=eq,maxDD=0,curve=[eq],out=[],maxLev=0;
+    hist.forEach(function(t){
+      if((t.outcome!=='TP'&&t.outcome!=='SL')||t.exit_price==null)return;
+      var entry=+t.entry,sl=+t.sl,ex=+t.exit_price;
+      var dist=Math.abs(entry-sl)/entry;
+      if(!(dist>0))return;
+      var long=t.type==='BUY';
+      var movePct=(long?(ex-entry):(entry-ex))/entry;
+      var riskAmt=eq*cfg.risk/100;
+      var notional=riskAmt/dist;
+      var gross=notional*movePct;
+      var cost=notional*cfg.cost/100;
+      var net=gross-cost;
+      eq+=net;
+      peak=Math.max(peak,eq);maxDD=Math.max(maxDD,(peak-eq)/peak*100);
+      maxLev=Math.max(maxLev,notional/Math.max(eq-net,1));
+      curve.push(eq);
+      out.push({t:t,net:net,gross:gross,r:net/riskAmt,pct:movePct*100});
+    });
+    return {eq:eq,curve:curve,trades:out,maxDD:maxDD,maxLev:maxLev};
+  }
+
+  function drawCurve(c){
+    var cv=el('sg-curve');if(!cv)return;
+    var dpr=window.devicePixelRatio||1,w=cv.clientWidth,h=cv.clientHeight;
+    if(!w)return;
+    cv.width=w*dpr;cv.height=h*dpr;
+    var g=cv.getContext('2d');g.scale(dpr,dpr);g.clearRect(0,0,w,h);
+    if(c.length<2){g.fillStyle='#8ab8d8';g.font='11px monospace';g.fillText('Noch keine abgeschlossenen Trades',10,h/2);return;}
+    var mn=Math.min.apply(null,c),mx=Math.max.apply(null,c);if(mx-mn<1e-9){mx+=1;mn-=1;}
+    var pad=8;
+    function X(i){return pad+i/(c.length-1)*(w-2*pad);}
+    function Y(v){return h-pad-(v-mn)/(mx-mn)*(h-2*pad);}
+    g.strokeStyle='#1e3d5c';g.beginPath();g.moveTo(pad,Y(cfg.cap));g.lineTo(w-pad,Y(cfg.cap));g.stroke();
+    g.strokeStyle=c[c.length-1]>=cfg.cap?'#00e396':'#ff4560';g.lineWidth=2;g.beginPath();
+    c.forEach(function(v,i){i?g.lineTo(X(i),Y(v)):g.moveTo(X(i),Y(v));});g.stroke();
+  }
+
+  function render(){
+    var sim=simulate(),n=sim.trades.length;
+    var wins=sim.trades.filter(function(x){return x.t.outcome==='TP';}).length;
+    var gp=0,gl=0;sim.trades.forEach(function(x){if(x.net>=0)gp+=x.net;else gl+=-x.net;});
+    var ret=(sim.eq/cfg.cap-1)*100;
+    var avgR=n?sim.trades.reduce(function(s,x){return s+x.r;},0)/n:0;
+    el('sg-stats').innerHTML=
+      '<div class="sg-stat"><b class="'+cls(ret)+'">$'+sim.eq.toFixed(2)+'</b><span>KONTOSTAND ('+pc(ret)+')</span></div>'+
+      '<div class="sg-stat"><b>'+n+'</b><span>TRADES ('+wins+' TP / '+(n-wins)+' SL)</span></div>'+
+      '<div class="sg-stat"><b>'+(n?(wins/n*100).toFixed(0)+'%':'–')+'</b><span>TREFFERQUOTE</span></div>'+
+      '<div class="sg-stat"><b class="'+cls(avgR)+'">'+(n?avgR.toFixed(2)+' R':'–')+'</b><span>Ø ERGEBNIS/TRADE</span></div>'+
+      '<div class="sg-stat"><b>'+(gl>0?(gp/gl).toFixed(2):(gp>0?'∞':'–'))+'</b><span>PROFITFAKTOR</span></div>'+
+      '<div class="sg-stat"><b class="sg-neg">-'+sim.maxDD.toFixed(1)+'%</b><span>MAX. RÜCKGANG</span></div>';
+    el('sg-note').textContent='Bei '+cfg.risk+'% Risiko pro Trade und '+cfg.cost+'% Kosten. Höchster Hebel: '+sim.maxLev.toFixed(1)+'x. 1 R = Risiko eines Trades (SL). Unter ca. 30 Trades pro Strategie ist das Ergebnis Zufall.';
+    drawCurve(sim.curve);
+
+    // offene Signale
+    var ids=Object.keys(open),oh='';
+    ids.forEach(function(id){
+      var t=open[id],p=prices[t.symbol],long=t.type==='BUY',d=dec(+t.entry);
+      var live='';
+      if(p){
+        var pl=(long?(p-t.entry):(t.entry-p))/t.entry*100;
+        var R=pl/ (Math.abs(t.entry-t.sl)/t.entry*100);
+        live='<div class="sg-mono '+cls(pl)+'">'+pc(pl)+' ('+R.toFixed(2)+' R)</div><div class="sg-dim">Kurs '+p.toFixed(d)+'</div>';
+      }else live='<div class="sg-dim">Kurs n/a</div>';
+      oh+='<div class="sg-row"><div><b>'+esc(t.symbol)+' '+esc(t.interval)+'</b> · '+esc(LABEL[t.category]||t.category)+' · '+esc(t.type)+
+        '<div class="sg-dim">Entry '+(+t.entry).toFixed(d)+' · SL '+(+t.sl).toFixed(d)+' · TP '+(+t.tp).toFixed(d)+' · '+when(t.candle_time)+'</div></div><div style="text-align:right">'+live+'</div></div>';
+    });
+    el('sg-open').innerHTML=oh||'<div class="sg-dim">Aktuell kein offenes Signal.</div>';
+
+    // Gruppen
+    var gm={};
+    sim.trades.forEach(function(x){
+      var k=(LABEL[x.t.category]||x.t.category)+' · '+x.t.symbol+' · '+x.t.interval;
+      var o=gm[k]||(gm[k]={n:0,w:0,net:0});o.n++;if(x.t.outcome==='TP')o.w++;o.net+=x.net;
+    });
+    var gh='';Object.keys(gm).sort().forEach(function(k){var o=gm[k];
+      gh+='<div class="sg-row"><div><b>'+esc(k)+'</b><div class="sg-dim">'+o.n+' Trades · Quote '+(o.w/o.n*100).toFixed(0)+'%</div></div><div class="sg-mono '+cls(o.net)+'">'+money(o.net)+'</div></div>';});
+    el('sg-groups').innerHTML=gh||'<div class="sg-dim">Noch keine abgeschlossenen Trades.</div>';
+
+    // letzte Trades
+    var lh='';sim.trades.slice(-15).reverse().forEach(function(x){var t=x.t;
+      lh+='<div class="sg-row"><div><b>'+esc(t.symbol)+' '+esc(t.interval)+'</b> · '+esc(LABEL[t.category]||t.category)+' · '+esc(t.type)+
+        '<div class="sg-dim">'+esc(t.outcome)+' · '+when(t.candle_time)+'</div></div><div style="text-align:right" class="sg-mono '+cls(x.net)+'">'+money(x.net)+'<div class="sg-dim">'+x.r.toFixed(2)+' R</div></div></div>';});
+    el('sg-last').innerHTML=lh||'<div class="sg-dim">Noch keine abgeschlossenen Trades.</div>';
+  }
+
+  async function refresh(){
+    if(busy)return;busy=true;
+    try{
+      var h=await getJson('trade_history.json');hist=(h&&h.entries)||[];
+      var o=await getJson('open_trades.json');open=(o&&typeof o==='object'&&!Array.isArray(o))?o:{};
+      loaded=true;
+    }catch(e){
+      el('sg-stats').innerHTML='<div class="sg-dim" style="grid-column:1/3">Daten konnten nicht geladen werden ('+esc(e.message)+'). Ist das Repo öffentlich?</div>';
+      busy=false;return;
+    }
+    var syms={};Object.keys(open).forEach(function(k){syms[open[k].symbol]=1;});
+    await Promise.all(Object.keys(syms).map(async function(s){var p=await getPrice(s);if(p)prices[s]=p;}));
+    render();busy=false;
+  }
+
+  window.sgRefresh=refresh;
+  window.sgSave=function(){
+    var c=parseFloat(el('sg-cap').value),r=parseFloat(el('sg-risk').value),k=parseFloat(el('sg-cost').value);
+    if(c>0)cfg.cap=c;if(r>0&&r<=100)cfg.risk=r;if(k>=0)cfg.cost=k;
+    try{localStorage.setItem('sg_cfg',JSON.stringify(cfg));}catch(e){}
+    if(loaded)render();
+  };
+  el('sg-cap').value=cfg.cap;el('sg-risk').value=cfg.risk;el('sg-cost').value=cfg.cost;
+  setInterval(function(){var t=el('tab-signal');if(t&&!t.classList.contains('hidden'))refresh();},30000);
+})();
+</script>
 </body>
 </html>
