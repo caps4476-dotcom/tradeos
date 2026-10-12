@@ -653,10 +653,12 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
     </div>
     <div class="sg-card">
       <div class="sg-title">// EINSTELLUNGEN</div>
-      <label class="sg-lbl">STARTKAPITAL</label><input class="sg-in" id="sg-cap" type="number" inputmode="decimal">
-      <label class="sg-lbl">RISIKO PRO TRADE (%)</label><input class="sg-in" id="sg-risk" type="number" inputmode="decimal" step="0.1">
-      <label class="sg-lbl">KOSTEN PRO TRADE, SPREAD + GEBÜHREN (% der Positionsgröße)</label><input class="sg-in" id="sg-cost" type="number" inputmode="decimal" step="0.01">
-      <button class="sg-btn" onclick="sgSave()">ÜBERNEHMEN &amp; NEU RECHNEN</button>
+      <label class="sg-lbl">STARTKAPITAL</label><input class="sg-in" id="sg-cap" type="text" inputmode="decimal" autocomplete="off">
+      <label class="sg-lbl">RISIKO PRO TRADE (%)</label><input class="sg-in" id="sg-risk" type="text" inputmode="decimal" autocomplete="off">
+      <label class="sg-lbl">KOSTEN PRO TRADE, SPREAD + GEBÜHREN (% der Positionsgröße)</label><input class="sg-in" id="sg-cost" type="text" inputmode="decimal" autocomplete="off">
+      <label class="sg-lbl">MAX. HEBEL (Positionsgröße höchstens so viel mal Kontostand)</label><input class="sg-in" id="sg-lev" type="text" inputmode="decimal" autocomplete="off">
+      <button class="sg-btn" id="sg-btn" onclick="sgSave()">ÜBERNEHMEN &amp; NEU RECHNEN</button>
+      <div class="sg-dim" id="sg-msg" style="margin-top:8px;min-height:14px"></div>
     </div>
   </div>
 
@@ -3299,7 +3301,7 @@ function updateTradeTable(prices, actions, strategyName = "MA Crossover") {
 (function(){
   var RAW='https://raw.githubusercontent.com/caps4476-dotcom/15min-Trading-Bot/main/';
   var LABEL={RETEST:'Re-Test',MOMENTUM:'Momentum',BREAKOUT:'Breakout'};
-  var cfg={cap:10000,risk:1,cost:0.1};
+  var cfg={cap:10000,risk:1,cost:0.05,lev:20};
   try{var s=JSON.parse(localStorage.getItem('sg_cfg')||'null');if(s)cfg=Object.assign(cfg,s);}catch(e){}
   var hist=[],open={},prices={},loaded=false,busy=false;
 
@@ -3338,12 +3340,13 @@ function updateTradeTable(prices, actions, strategyName = "MA Crossover") {
       if(!(dist>0))return;
       var long=t.type==='BUY';
       var movePct=(long?(ex-entry):(entry-ex))/entry;
+      if(eq<=0)return;
       var riskAmt=eq*cfg.risk/100;
-      var notional=riskAmt/dist;
+      var notional=Math.min(riskAmt/dist,eq*cfg.lev);
       var gross=notional*movePct;
       var cost=notional*cfg.cost/100;
       var net=gross-cost;
-      eq+=net;
+      eq=Math.max(eq+net,0);
       peak=Math.max(peak,eq);maxDD=Math.max(maxDD,(peak-eq)/peak*100);
       maxLev=Math.max(maxLev,notional/Math.max(eq-net,1));
       curve.push(eq);
@@ -3381,7 +3384,7 @@ function updateTradeTable(prices, actions, strategyName = "MA Crossover") {
       '<div class="sg-stat"><b class="'+cls(avgR)+'">'+(n?avgR.toFixed(2)+' R':'–')+'</b><span>Ø ERGEBNIS/TRADE</span></div>'+
       '<div class="sg-stat"><b>'+(gl>0?(gp/gl).toFixed(2):(gp>0?'∞':'–'))+'</b><span>PROFITFAKTOR</span></div>'+
       '<div class="sg-stat"><b class="sg-neg">-'+sim.maxDD.toFixed(1)+'%</b><span>MAX. RÜCKGANG</span></div>';
-    el('sg-note').textContent='Bei '+cfg.risk+'% Risiko pro Trade und '+cfg.cost+'% Kosten. Höchster Hebel: '+sim.maxLev.toFixed(1)+'x. 1 R = Risiko eines Trades (SL). Unter ca. 30 Trades pro Strategie ist das Ergebnis Zufall.';
+    el('sg-note').textContent='Bei '+cfg.risk+'% Risiko pro Trade und '+cfg.cost+'% Kosten. Max. Hebel '+cfg.lev+'x (genutzt bis '+sim.maxLev.toFixed(1)+'x). 1 R = Risiko eines Trades (SL). Unter ca. 30 Trades pro Strategie ist das Ergebnis Zufall.';
     drawCurve(sim.curve);
 
     // offene Signale
@@ -3432,13 +3435,24 @@ function updateTradeTable(prices, actions, strategyName = "MA Crossover") {
   }
 
   window.sgRefresh=refresh;
+  function num(id){return parseFloat(String(el(id).value).replace(',','.').replace(/[^0-9.\-]/g,''));}
   window.sgSave=function(){
-    var c=parseFloat(el('sg-cap').value),r=parseFloat(el('sg-risk').value),k=parseFloat(el('sg-cost').value);
-    if(c>0)cfg.cap=c;if(r>0&&r<=100)cfg.risk=r;if(k>=0)cfg.cost=k;
+    var c=num('sg-cap'),r=num('sg-risk'),k=num('sg-cost'),l=num('sg-lev'),bad=[];
+    if(c>0)cfg.cap=c;else bad.push('Startkapital');
+    if(r>0&&r<=100)cfg.risk=r;else bad.push('Risiko');
+    if(k>=0)cfg.cost=k;else bad.push('Kosten');
+    if(l>0)cfg.lev=l;else bad.push('Hebel');
     try{localStorage.setItem('sg_cfg',JSON.stringify(cfg));}catch(e){}
+    el('sg-cap').value=cfg.cap;el('sg-risk').value=cfg.risk;el('sg-cost').value=cfg.cost;el('sg-lev').value=cfg.lev;
     if(loaded)render();
+    var m=el('sg-msg');
+    m.className='sg-dim '+(bad.length?'sg-neg':'sg-pos');
+    m.textContent=bad.length?'Ungültig, alter Wert bleibt: '+bad.join(', '):'✓ Übernommen und neu berechnet';
+    var b=el('sg-btn');if(!bad.length)b.textContent='✓ ÜBERNOMMEN';
+    setTimeout(function(){b.textContent='ÜBERNEHMEN & NEU RECHNEN';},1500);
+    window.scrollTo({top:0,behavior:'smooth'});
   };
-  el('sg-cap').value=cfg.cap;el('sg-risk').value=cfg.risk;el('sg-cost').value=cfg.cost;
+  el('sg-cap').value=cfg.cap;el('sg-risk').value=cfg.risk;el('sg-cost').value=cfg.cost;el('sg-lev').value=cfg.lev;
   setInterval(function(){var t=el('tab-signal');if(t&&!t.classList.contains('hidden'))refresh();},30000);
 })();
 </script>
